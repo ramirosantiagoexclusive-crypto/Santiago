@@ -1,7 +1,16 @@
 // Общий серверный мультиплеер — один мир для всех
 // Все игроки подключаются к единому глобальному серверу автоматически
 
-import mqtt, { MqttClient } from 'mqtt';
+// Динамический импорт MQTT для быстрой загрузки игры
+type MqttClient = any;
+let mqttModule: any = null;
+
+async function loadMqtt(): Promise<any> {
+  if (!mqttModule) {
+    mqttModule = await import('mqtt');
+  }
+  return mqttModule;
+}
 
 export interface PlayerData {
   id: string;
@@ -50,6 +59,7 @@ export class GlobalMultiplayer {
   private onPlayersUpdate: ((players: PlayerData[]) => void) | null = null;
   private onChatMessage: ((msg: ChatMessage) => void) | null = null;
   private onStatusChange: ((status: string) => void) | null = null;
+  private onConnectionChange: ((connected: boolean) => void) | null = null;
 
   constructor() {
     this.myId = this.generateId();
@@ -66,79 +76,86 @@ export class GlobalMultiplayer {
     return colors[Math.floor(Math.random() * colors.length)];
   }
 
-  // Автоподключение к общему серверу
-  async connect(): Promise<boolean> {
-    if (this.connected || this.connecting) return this.connected;
+  // Автоподключение к общему серверу (неблокирующее)
+  connect(): void {
+    if (this.connected || this.connecting) return;
     this.connecting = true;
-
-    return new Promise((resolve) => {
-      this.tryConnect(resolve);
-    });
+    this.tryConnectBackground();
   }
 
-  private tryConnect(resolve: (ok: boolean) => void, attempts: number = 0): void {
+  // Подключение в фоне — не блокирует UI
+  private tryConnectBackground(): void {
+    // Используем setTimeout чтобы не блокировать рендер игры
+    setTimeout(async () => {
+      await this.doConnect();
+    }, 100);
+  }
+
+  private async doConnect(): Promise<void> {
     const brokerUrl = BROKERS[this.brokerIndex];
     this.notifyStatus(`Подключение к серверу...`);
 
-    const client = mqtt.connect(brokerUrl, {
-      clientId: this.myId,
-      clean: true,
-      connectTimeout: 8000,
-      reconnectPeriod: 0, // Не реконнектим сами — управляем вручную
-      keepalive: 30,
-    });
+    try {
+      // Динамическая загрузка MQTT
+      const mqtt = await loadMqtt();
+      
+      const client = mqtt.connect(brokerUrl, {
+        clientId: this.myId,
+        clean: true,
+        connectTimeout: 5000,
+        reconnectPeriod: 3000,
+        keepalive: 20,
+      });
 
-    const timeout = setTimeout(() => {
-      client.end(true);
-      this.brokerIndex = (this.brokerIndex + 1) % BROKERS.length;
-      if (attempts < BROKERS.length - 1) {
-        this.tryConnect(resolve, attempts + 1);
-      } else {
+      const timeout = setTimeout(() => {
+        this.notifyStatus('Таймаут, пробуем другой сервер...');
+        client.end(true);
+        this.brokerIndex = (this.brokerIndex + 1) % BROKERS.length;
+        setTimeout(() => this.doConnect(), 3000);
+      }, 5000);
+
+      client.on('connect', () => {
+        clearTimeout(timeout);
+        this.client = client;
+        this.connected = true;
         this.connecting = false;
-        this.notifyStatus('Не удалось подключиться');
-        resolve(false);
-      }
-    }, 8000);
+        this.notifyStatus('Сервер подключён ✓');
+        if (this.onConnectionChange) this.onConnectionChange(true);
 
-    client.on('connect', () => {
-      clearTimeout(timeout);
-      this.client = client;
-      this.connected = true;
-      this.connecting = false;
-      this.notifyStatus('Сервер подключён ✓');
+        client.subscribe(`${GLOBAL_TOPIC}/#`, { qos: 1 });
+        this.publishSelf();
+        this.startHeartbeat();
+        this.startCleanup();
+      });
 
-      // Подписываемся на глобальный мир
-      client.subscribe(`${GLOBAL_TOPIC}/#`, { qos: 1 });
+      client.on('error', (err: any) => {
+        clearTimeout(timeout);
+        console.warn('MQTT error:', err.message);
+        client.end(true);
+        this.brokerIndex = (this.brokerIndex + 1) % BROKERS.length;
+        setTimeout(() => this.doConnect(), 3000);
+      });
 
-      // Регистрируем себя
-      this.publishSelf();
-      this.startHeartbeat();
-      this.startCleanup();
+      client.on('close', () => {
+        this.connected = false;
+        if (this.onConnectionChange) this.onConnectionChange(false);
+      });
 
-      resolve(true);
-    });
+      client.on('reconnect', () => {
+        this.notifyStatus('Переподключение...');
+      });
 
-    client.on('error', () => {
-      clearTimeout(timeout);
-      client.end(true);
+      client.on('message', (topic: string, message: any) => {
+        this.handleMessage(topic, message.toString());
+      });
+    } catch (e) {
+      console.error('Connect error:', e);
       this.brokerIndex = (this.brokerIndex + 1) % BROKERS.length;
-      if (attempts < BROKERS.length - 1) {
-        this.tryConnect(resolve, attempts + 1);
-      } else {
-        this.connecting = false;
-        this.notifyStatus('Сервер недоступен');
-        resolve(false);
-      }
-    });
-
-    client.on('close', () => {
-      this.connected = false;
-    });
-
-    client.on('message', (topic, message) => {
-      this.handleMessage(topic, message.toString());
-    });
+      setTimeout(() => this.doConnect(), 3000);
+    }
   }
+
+
 
   // Публикация своих данных
   private publishSelf(): void {
@@ -289,6 +306,7 @@ export class GlobalMultiplayer {
   setOnPlayersUpdate(cb: (players: PlayerData[]) => void) { this.onPlayersUpdate = cb; }
   setOnChatMessage(cb: (msg: ChatMessage) => void) { this.onChatMessage = cb; }
   setOnStatusChange(cb: (status: string) => void) { this.onStatusChange = cb; }
+  setOnConnectionChange(cb: (connected: boolean) => void) { this.onConnectionChange = cb; }
 
   private notifyPlayersUpdate(): void {
     if (this.onPlayersUpdate) this.onPlayersUpdate(this.getPlayers());

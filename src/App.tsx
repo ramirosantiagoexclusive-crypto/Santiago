@@ -31,8 +31,9 @@ function App() {
   const [isRunning, setIsRunning] = useState(false);
 
   // Мультиплеер
-  const [mpStatus, setMpStatus] = useState('Подключение...');
+  const [mpStatus, setMpStatus] = useState('Инициализация...');
   const [mpConnected, setMpConnected] = useState(false);
+  const [mpConnecting, setMpConnecting] = useState(true);
   const [mpPlayers, setMpPlayers] = useState<PlayerData[]>([]);
   const [playerName, setPlayerName] = useState('');
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -90,10 +91,8 @@ function App() {
     mpRef.current = mp;
     setPlayerName(mp.getMyName());
 
-    // Автоподключение
-    mp.connect().then((success) => {
-      setMpConnected(success);
-    });
+    // Автоподключение в фоне (не блокирует игру)
+    mp.connect();
 
     mp.setOnPlayersUpdate((players: PlayerData[]) => {
       setMpPlayers(players);
@@ -112,6 +111,11 @@ function App() {
 
     mp.setOnStatusChange((status: string) => {
       setMpStatus(status);
+    });
+
+    mp.setOnConnectionChange((connected: boolean) => {
+      setMpConnected(connected);
+      setMpConnecting(false);
     });
 
     mp.setOnChatMessage((msg: ChatMessage) => {
@@ -196,6 +200,7 @@ function App() {
       {/* Статус сервера */}
       <ServerStatus
         connected={mpConnected}
+        connecting={mpConnecting}
         status={mpStatus}
         playersCount={mpPlayers.length}
         myName={playerName}
