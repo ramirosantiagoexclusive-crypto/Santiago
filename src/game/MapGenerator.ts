@@ -106,55 +106,64 @@ export function generateMap(seed: number = 42): TileType[][] {
   const perlin = new PerlinNoise(seed);
   const map: TileType[][] = [];
 
-  // Генерируем базовый ландшафт
+  // Генерируем базовый ландшафт с более крупными биомами
   for (let y = 0; y < MAP_HEIGHT; y++) {
     map[y] = [];
     for (let x = 0; x < MAP_WIDTH; x++) {
-      // Высота (определяет биом)
-      const elevation = perlin.octaveNoise(x * 0.05, y * 0.05, 4, 0.5);
-      // Влажность (определяет растительность)
-      const moisture = perlin.octaveNoise(x * 0.08 + 100, y * 0.08 + 100, 3, 0.5);
+      // Высота (определяет биом) - более низкая частота для крупных биомов
+      const elevation = perlin.octaveNoise(x * 0.03, y * 0.03, 3, 0.6);
 
-      if (elevation < -0.2) {
+      if (elevation < -0.3) {
         map[y][x] = TileType.WATER;
-      } else if (elevation < -0.05) {
+      } else if (elevation < -0.15) {
         map[y][x] = TileType.SAND;
-      } else if (elevation < 0.3) {
-        // Трава с вариациями
-        const grassVariant = Math.abs(Math.floor(perlin.noise(x * 0.3, y * 0.3) * 3)) % 3;
-        map[y][x] = TileType.GRASS_1 + grassVariant;
-      } else if (elevation < 0.5) {
-        map[y][x] = TileType.GRASS_1;
       } else {
-        map[y][x] = TileType.GRASS_2;
+        // Трава с вариациями
+        const grassVariant = Math.abs(Math.floor(perlin.noise(x * 0.2, y * 0.2) * 3)) % 3;
+        map[y][x] = TileType.GRASS_1 + grassVariant;
       }
     }
   }
 
-  // Добавляем дороги
-  const roadNoise = new PerlinNoise(seed + 1000);
-  for (let y = 0; y < MAP_HEIGHT; y++) {
+  // Добавляем основные дороги (горизонтальные и вертикальные)
+  const mainRoadY = [20, 50, 80];
+  const mainRoadX = [20, 50, 80];
+
+  for (const roadY of mainRoadY) {
     for (let x = 0; x < MAP_WIDTH; x++) {
-      const roadValue = roadNoise.noise(x * 0.02, y * 0.15);
-      if (Math.abs(roadValue) < 0.05 && map[y][x] !== TileType.WATER) {
-        map[y][x] = TileType.ROAD;
+      if (roadY < MAP_HEIGHT && map[roadY][x] !== TileType.WATER) {
+        map[roadY][x] = TileType.ROAD;
+        // Ширина дороги 2 тайла
+        if (roadY + 1 < MAP_HEIGHT && map[roadY + 1][x] !== TileType.WATER) {
+          map[roadY + 1][x] = TileType.ROAD;
+        }
       }
     }
   }
 
-  // Добавляем деревья на траве
-  const treeNoise = new PerlinNoise(seed + 2000);
-  for (let y = 2; y < MAP_HEIGHT - 2; y++) {
-    for (let x = 2; x < MAP_WIDTH - 2; x++) {
+  for (const roadX of mainRoadX) {
+    for (let y = 0; y < MAP_HEIGHT; y++) {
+      if (roadX < MAP_WIDTH && map[y][roadX] !== TileType.WATER) {
+        map[y][roadX] = TileType.ROAD;
+        // Ширина дороги 2 тайла
+        if (roadX + 1 < MAP_WIDTH && map[y][roadX + 1] !== TileType.WATER) {
+          map[y][roadX + 1] = TileType.ROAD;
+        }
+      }
+    }
+  }
+
+  // Добавляем деревья кластерами (лесные массивы)
+  const forestNoise = new PerlinNoise(seed + 2000);
+  for (let y = 3; y < MAP_HEIGHT - 3; y++) {
+    for (let x = 3; x < MAP_WIDTH - 3; x++) {
       if (map[y][x] >= TileType.GRASS_1 && map[y][x] <= TileType.GRASS_3) {
-        const treeValue = treeNoise.noise(x * 0.2, y * 0.2);
-        if (treeValue > 0.4) {
-          const treeType = Math.floor(Math.abs(treeNoise.noise(x * 0.5, y * 0.5)) * 3);
+        const forestValue = forestNoise.octaveNoise(x * 0.08, y * 0.08, 2, 0.5);
+        
+        // Лесные массивы только в определённых зонах
+        if (forestValue > 0.35) {
+          const treeType = Math.floor(Math.abs(forestNoise.noise(x * 0.3, y * 0.3)) * 3);
           map[y][x] = TileType.TREE_DECIDUOUS + (treeType % 3);
-        } else if (treeValue > 0.3) {
-          map[y][x] = TileType.BUSH;
-        } else if (treeValue > 0.25) {
-          map[y][x] = TileType.FLOWER;
         }
       }
     }
@@ -163,13 +172,6 @@ export function generateMap(seed: number = 42): TileType[][] {
   // Добавляем мосты через воду
   for (let y = 1; y < MAP_HEIGHT - 1; y++) {
     for (let x = 1; x < MAP_WIDTH - 1; x++) {
-      if (map[y][x] === TileType.ROAD) {
-        // Проверяем, есть ли вода рядом
-        if (map[y - 1]?.[x] === TileType.WATER || map[y + 1]?.[x] === TileType.WATER ||
-            map[y]?.[x - 1] === TileType.WATER || map[y]?.[x + 1] === TileType.WATER) {
-          // Оставляем дорогу (она будет мостом)
-        }
-      }
       if (map[y][x] === TileType.WATER) {
         // Проверяем, есть ли дорога рядом
         if ((map[y - 1]?.[x] === TileType.ROAD && map[y + 1]?.[x] === TileType.ROAD) ||
@@ -180,25 +182,27 @@ export function generateMap(seed: number = 42): TileType[][] {
     }
   }
 
-  // Добавляем дома
+  // Добавляем дома вдоль дорог
   const housePositions = [
-    { x: 15, y: 15 }, { x: 45, y: 20 }, { x: 70, y: 35 },
-    { x: 30, y: 60 }, { x: 60, y: 70 }, { x: 80, y: 50 },
-    { x: 25, y: 40 }, { x: 55, y: 45 },
+    { x: 22, y: 22 }, { x: 48, y: 22 }, { x: 78, y: 22 },
+    { x: 22, y: 52 }, { x: 48, y: 52 }, { x: 78, y: 52 },
+    { x: 22, y: 78 }, { x: 48, y: 78 }, { x: 78, y: 78 },
   ];
 
   for (const pos of housePositions) {
     if (pos.x < MAP_WIDTH && pos.y < MAP_HEIGHT) {
-      if (map[pos.y][pos.x] !== TileType.WATER) {
+      if (map[pos.y][pos.x] !== TileType.WATER && map[pos.y][pos.x] !== TileType.ROAD) {
         map[pos.y][pos.x] = TileType.HOUSE;
       }
     }
   }
 
-  // Очищаем стартовую зону
-  for (let y = 48; y < 52; y++) {
-    for (let x = 48; x < 52; x++) {
-      map[y][x] = TileType.GRASS_1;
+  // Очищаем стартовую зону (большую)
+  for (let y = 45; y < 55; y++) {
+    for (let x = 45; x < 55; x++) {
+      if (y < MAP_HEIGHT && x < MAP_WIDTH) {
+        map[y][x] = TileType.GRASS_1;
+      }
     }
   }
 
