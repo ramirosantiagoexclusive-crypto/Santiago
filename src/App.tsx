@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { GameEngine, GameState } from './game/GameEngine';
-import { ServerMultiplayerManager, PlayerData, ChatMessage } from './game/ServerMultiplayer';
+import { GlobalMultiplayer, PlayerData, ChatMessage } from './game/GlobalMultiplayer';
 import type { Emotion, Direction, AnimationType } from './game/SpriteGenerator';
 import { VirtualJoystick } from './components/VirtualJoystick';
 import { MobileControls } from './components/MobileControls';
-import { MultiplayerMenu } from './components/MultiplayerMenu';
+import { ServerStatus } from './components/ServerStatus';
 import { ChatPanel } from './components/ChatPanel';
 
 const EMOTION_ICONS: { emotion: Emotion; icon: string; label: string; key: string }[] = [
@@ -19,7 +19,7 @@ const EMOTION_ICONS: { emotion: Emotion; icon: string; label: string; key: strin
 function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<GameEngine | null>(null);
-  const mpRef = useRef<ServerMultiplayerManager | null>(null);
+  const mpRef = useRef<GlobalMultiplayer | null>(null);
   
   const [gameState, setGameState] = useState<GameState>({
     x: 50, y: 50, animation: 'idle', direction: 'down',
@@ -31,8 +31,7 @@ function App() {
   const [isRunning, setIsRunning] = useState(false);
 
   // Мультиплеер
-  const [mpStatus, setMpStatus] = useState('');
-  const [mpRoomCode, setMpRoomCode] = useState('');
+  const [mpStatus, setMpStatus] = useState('Подключение...');
   const [mpConnected, setMpConnected] = useState(false);
   const [mpPlayers, setMpPlayers] = useState<PlayerData[]>([]);
   const [playerName, setPlayerName] = useState('');
@@ -71,7 +70,7 @@ function App() {
       if (!state.emotion) setActiveEmotion(null);
 
       // Отправляем обновление на сервер
-      if (mpRef.current?.isInRoom()) {
+      if (mpRef.current?.isConnected()) {
         mpRef.current.updateMyPlayer({
           x: state.x * 64,
           y: state.y * 64,
@@ -86,15 +85,20 @@ function App() {
       setIsLoading(false);
     });
 
-    // Инициализация серверного мультиплеера
-    const mp = new ServerMultiplayerManager();
+    // Инициализация глобального мультиплеера
+    const mp = new GlobalMultiplayer();
     mpRef.current = mp;
     setPlayerName(mp.getMyName());
 
-    mp.setOnPlayersUpdate((players) => {
+    // Автоподключение
+    mp.connect().then((success) => {
+      setMpConnected(success);
+    });
+
+    mp.setOnPlayersUpdate((players: PlayerData[]) => {
       setMpPlayers(players);
       // Передаём других игроков в движок
-      engine.setOtherPlayers(players.map(p => ({
+      engine.setOtherPlayers(players.map((p: PlayerData) => ({
         id: p.id,
         name: p.name,
         x: p.x,
@@ -106,22 +110,18 @@ function App() {
       })));
     });
 
-    mp.setOnStatusChange((status) => {
+    mp.setOnStatusChange((status: string) => {
       setMpStatus(status);
     });
 
-    mp.setOnConnectionChange((connected) => {
-      setMpConnected(connected);
-    });
-
-    mp.setOnChatMessage((msg) => {
+    mp.setOnChatMessage((msg: ChatMessage) => {
       setChatMessages(prev => [...prev.slice(-50), msg]);
     });
 
     return () => {
       window.removeEventListener('resize', resize);
       engine.destroy();
-      mp.destroy();
+      mp.disconnect();
     };
   }, []);
 
@@ -154,45 +154,6 @@ function App() {
   const handleRun = useCallback((running: boolean) => {
     setIsRunning(running);
     engineRef.current?.setRunning(running);
-  }, []);
-
-  // Мультиплеер
-  const handleCreateRoom = useCallback(async () => {
-    try {
-      const code = await mpRef.current!.createRoom();
-      setMpRoomCode(code);
-      setMpConnected(true);
-      setMpStatus(`Комната создана: ${code}`);
-    } catch (e) {
-      setMpStatus('Ошибка создания комнаты');
-      console.error(e);
-    }
-  }, []);
-
-  const handleJoinRoom = useCallback(async (code: string) => {
-    try {
-      setMpStatus('Подключение к серверу...');
-      const success = await mpRef.current!.joinRoom(code);
-      if (success) {
-        setMpRoomCode(code.toUpperCase());
-        setMpConnected(true);
-        setMpStatus(`Подключено к комнате: ${code.toUpperCase()}`);
-      } else {
-        setMpStatus('Не удалось подключиться');
-      }
-    } catch (e) {
-      setMpStatus('Ошибка подключения');
-      console.error(e);
-    }
-  }, []);
-
-  const handleDisconnect = useCallback(() => {
-    mpRef.current?.disconnect();
-    setMpConnected(false);
-    setMpRoomCode('');
-    setMpPlayers([]);
-    setMpStatus('');
-    setChatMessages([]);
   }, []);
 
   const handleNameChange = useCallback((name: string) => {
@@ -232,30 +193,14 @@ function App() {
         </div>
       )}
 
-      {/* Мультиплеер меню */}
-      <MultiplayerMenu
-        onCreateRoom={handleCreateRoom}
-        onJoinRoom={handleJoinRoom}
-        onDisconnect={handleDisconnect}
-        roomCode={mpRoomCode}
-        isConnected={mpConnected}
+      {/* Статус сервера */}
+      <ServerStatus
+        connected={mpConnected}
         status={mpStatus}
-        playerName={playerName}
+        playersCount={mpPlayers.length}
+        myName={playerName}
         onNameChange={handleNameChange}
       />
-
-      {/* Список игроков онлайн */}
-      {mpConnected && mpPlayers.length > 0 && (
-        <div className="fixed top-16 right-4 z-20 bg-gray-800/80 backdrop-blur-sm rounded-lg p-2 border border-gray-600/50 max-w-[180px]">
-          <p className="text-xs text-gray-400 mb-1">👥 Игроки ({mpPlayers.length}):</p>
-          {mpPlayers.map(p => (
-            <div key={p.id} className="flex items-center gap-1 text-xs text-gray-200 py-0.5">
-              <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: p.color }}></span>
-              <span className="truncate">{p.name}{p.id === mpRef.current?.getMyId() ? ' (вы)' : ''}</span>
-            </div>
-          ))}
-        </div>
-      )}
 
       {/* Чат */}
       {mpConnected && (
