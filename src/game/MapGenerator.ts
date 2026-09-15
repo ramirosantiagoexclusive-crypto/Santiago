@@ -1,0 +1,609 @@
+// Процедурная генерация карты с использованием шума Перлина
+// Размер карты: 100x100 тайлов, размер тайла: 64x64
+
+export const TILE_SIZE = 64;
+export const MAP_WIDTH = 100;
+export const MAP_HEIGHT = 100;
+
+// Типы тайлов
+export enum TileType {
+  GRASS_1 = 0,
+  GRASS_2 = 1,
+  GRASS_3 = 2,
+  WATER = 3,
+  SAND = 4,
+  ROAD = 5,
+  TREE_DECIDUOUS = 6,
+  TREE_CONIFER = 7,
+  TREE_FRUIT = 8,
+  FLOWER = 9,
+  BUSH = 10,
+  BRIDGE = 11,
+  HOUSE = 12,
+}
+
+// Является ли тайл проходимым
+export function isWalkable(type: TileType): boolean {
+  return ![TileType.WATER, TileType.TREE_DECIDUOUS, TileType.TREE_CONIFER, 
+           TileType.TREE_FRUIT, TileType.BUSH, TileType.HOUSE].includes(type);
+}
+
+// Простой шум Перлина (упрощённая реализация)
+class PerlinNoise {
+  private permutation: number[];
+
+  constructor(seed: number = 42) {
+    this.permutation = this.generatePermutation(seed);
+  }
+
+  private generatePermutation(seed: number): number[] {
+    const perm = Array.from({ length: 256 }, (_, i) => i);
+    // Перемешивание с сидом
+    let s = seed;
+    for (let i = 255; i > 0; i--) {
+      s = (s * 16807 + 0) % 2147483647;
+      const j = s % (i + 1);
+      [perm[i], perm[j]] = [perm[j], perm[i]];
+    }
+    return [...perm, ...perm];
+  }
+
+  private fade(t: number): number {
+    return t * t * t * (t * (t * 6 - 15) + 10);
+  }
+
+  private lerp(a: number, b: number, t: number): number {
+    return a + t * (b - a);
+  }
+
+  private grad(hash: number, x: number, y: number): number {
+    const h = hash & 3;
+    const u = h < 2 ? x : y;
+    const v = h < 2 ? y : x;
+    return ((h & 1) === 0 ? u : -u) + ((h & 2) === 0 ? v : -v);
+  }
+
+  noise(x: number, y: number): number {
+    const X = Math.floor(x) & 255;
+    const Y = Math.floor(y) & 255;
+    
+    x -= Math.floor(x);
+    y -= Math.floor(y);
+    
+    const u = this.fade(x);
+    const v = this.fade(y);
+    
+    const A = this.permutation[X] + Y;
+    const B = this.permutation[X + 1] + Y;
+    
+    return this.lerp(
+      this.lerp(this.grad(this.permutation[A], x, y), this.grad(this.permutation[B], x - 1, y), u),
+      this.lerp(this.grad(this.permutation[A + 1], x, y - 1), this.grad(this.permutation[B + 1], x - 1, y - 1), u),
+      v
+    );
+  }
+
+  // Октавный шум для более детализированного результата
+  octaveNoise(x: number, y: number, octaves: number = 4, persistence: number = 0.5): number {
+    let total = 0;
+    let frequency = 1;
+    let amplitude = 1;
+    let maxValue = 0;
+
+    for (let i = 0; i < octaves; i++) {
+      total += this.noise(x * frequency, y * frequency) * amplitude;
+      maxValue += amplitude;
+      amplitude *= persistence;
+      frequency *= 2;
+    }
+
+    return total / maxValue;
+  }
+}
+
+// Генерация карты
+export function generateMap(seed: number = 42): TileType[][] {
+  const perlin = new PerlinNoise(seed);
+  const map: TileType[][] = [];
+
+  // Генерируем базовый ландшафт
+  for (let y = 0; y < MAP_HEIGHT; y++) {
+    map[y] = [];
+    for (let x = 0; x < MAP_WIDTH; x++) {
+      // Высота (определяет биом)
+      const elevation = perlin.octaveNoise(x * 0.05, y * 0.05, 4, 0.5);
+      // Влажность (определяет растительность)
+      const moisture = perlin.octaveNoise(x * 0.08 + 100, y * 0.08 + 100, 3, 0.5);
+
+      if (elevation < -0.2) {
+        map[y][x] = TileType.WATER;
+      } else if (elevation < -0.05) {
+        map[y][x] = TileType.SAND;
+      } else if (elevation < 0.3) {
+        // Трава с вариациями
+        const grassVariant = Math.abs(Math.floor(perlin.noise(x * 0.3, y * 0.3) * 3)) % 3;
+        map[y][x] = TileType.GRASS_1 + grassVariant;
+      } else if (elevation < 0.5) {
+        map[y][x] = TileType.GRASS_1;
+      } else {
+        map[y][x] = TileType.GRASS_2;
+      }
+    }
+  }
+
+  // Добавляем дороги
+  const roadNoise = new PerlinNoise(seed + 1000);
+  for (let y = 0; y < MAP_HEIGHT; y++) {
+    for (let x = 0; x < MAP_WIDTH; x++) {
+      const roadValue = roadNoise.noise(x * 0.02, y * 0.15);
+      if (Math.abs(roadValue) < 0.05 && map[y][x] !== TileType.WATER) {
+        map[y][x] = TileType.ROAD;
+      }
+    }
+  }
+
+  // Добавляем деревья на траве
+  const treeNoise = new PerlinNoise(seed + 2000);
+  for (let y = 2; y < MAP_HEIGHT - 2; y++) {
+    for (let x = 2; x < MAP_WIDTH - 2; x++) {
+      if (map[y][x] >= TileType.GRASS_1 && map[y][x] <= TileType.GRASS_3) {
+        const treeValue = treeNoise.noise(x * 0.2, y * 0.2);
+        if (treeValue > 0.4) {
+          const treeType = Math.floor(Math.abs(treeNoise.noise(x * 0.5, y * 0.5)) * 3);
+          map[y][x] = TileType.TREE_DECIDUOUS + (treeType % 3);
+        } else if (treeValue > 0.3) {
+          map[y][x] = TileType.BUSH;
+        } else if (treeValue > 0.25) {
+          map[y][x] = TileType.FLOWER;
+        }
+      }
+    }
+  }
+
+  // Добавляем мосты через воду
+  for (let y = 1; y < MAP_HEIGHT - 1; y++) {
+    for (let x = 1; x < MAP_WIDTH - 1; x++) {
+      if (map[y][x] === TileType.ROAD) {
+        // Проверяем, есть ли вода рядом
+        if (map[y - 1]?.[x] === TileType.WATER || map[y + 1]?.[x] === TileType.WATER ||
+            map[y]?.[x - 1] === TileType.WATER || map[y]?.[x + 1] === TileType.WATER) {
+          // Оставляем дорогу (она будет мостом)
+        }
+      }
+      if (map[y][x] === TileType.WATER) {
+        // Проверяем, есть ли дорога рядом
+        if ((map[y - 1]?.[x] === TileType.ROAD && map[y + 1]?.[x] === TileType.ROAD) ||
+            (map[y]?.[x - 1] === TileType.ROAD && map[y]?.[x + 1] === TileType.ROAD)) {
+          map[y][x] = TileType.BRIDGE;
+        }
+      }
+    }
+  }
+
+  // Добавляем дома
+  const housePositions = [
+    { x: 15, y: 15 }, { x: 45, y: 20 }, { x: 70, y: 35 },
+    { x: 30, y: 60 }, { x: 60, y: 70 }, { x: 80, y: 50 },
+    { x: 25, y: 40 }, { x: 55, y: 45 },
+  ];
+
+  for (const pos of housePositions) {
+    if (pos.x < MAP_WIDTH && pos.y < MAP_HEIGHT) {
+      if (map[pos.y][pos.x] !== TileType.WATER) {
+        map[pos.y][pos.x] = TileType.HOUSE;
+      }
+    }
+  }
+
+  // Очищаем стартовую зону
+  for (let y = 48; y < 52; y++) {
+    for (let x = 48; x < 52; x++) {
+      map[y][x] = TileType.GRASS_1;
+    }
+  }
+
+  return map;
+}
+
+// Генерация тайловой текстуры
+export function generateTileTextures(): Map<TileType, HTMLCanvasElement> {
+  const textures = new Map<TileType, HTMLCanvasElement>();
+
+  // Трава (3 варианта)
+  for (let i = 0; i < 3; i++) {
+    const canvas = document.createElement('canvas');
+    canvas.width = TILE_SIZE;
+    canvas.height = TILE_SIZE;
+    const ctx = canvas.getContext('2d')!;
+    
+    // Базовый цвет травы
+    const greens = ['#4ADE80', '#22C55E', '#16A34A'];
+    ctx.fillStyle = greens[i];
+    ctx.fillRect(0, 0, TILE_SIZE, TILE_SIZE);
+    
+    // Текстура травы
+    const rng = mulberry32(i * 12345);
+    for (let j = 0; j < 20; j++) {
+      const gx = rng() * TILE_SIZE;
+      const gy = rng() * TILE_SIZE;
+      ctx.strokeStyle = `rgba(0, 100, 0, ${0.2 + rng() * 0.3})`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(gx, gy);
+      ctx.lineTo(gx + (rng() - 0.5) * 4, gy - 3 - rng() * 4);
+      ctx.stroke();
+    }
+    
+    // Точки/цветочки
+    for (let j = 0; j < 5; j++) {
+      const dx = rng() * TILE_SIZE;
+      const dy = rng() * TILE_SIZE;
+      ctx.fillStyle = `rgba(255, 255, 100, ${0.3 + rng() * 0.3})`;
+      ctx.beginPath();
+      ctx.arc(dx, dy, 1 + rng(), 0, Math.PI * 2);
+      ctx.fill();
+    }
+    
+    textures.set(TileType.GRASS_1 + i, canvas);
+  }
+
+  // Вода
+  const waterCanvas = document.createElement('canvas');
+  waterCanvas.width = TILE_SIZE;
+  waterCanvas.height = TILE_SIZE;
+  const waterCtx = waterCanvas.getContext('2d')!;
+  
+  // Градиент воды
+  const waterGrad = waterCtx.createLinearGradient(0, 0, TILE_SIZE, TILE_SIZE);
+  waterGrad.addColorStop(0, '#3B82F6');
+  waterGrad.addColorStop(0.5, '#2563EB');
+  waterGrad.addColorStop(1, '#1D4ED8');
+  waterCtx.fillStyle = waterGrad;
+  waterCtx.fillRect(0, 0, TILE_SIZE, TILE_SIZE);
+  
+  // Волны
+  waterCtx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+  waterCtx.lineWidth = 1;
+  for (let i = 0; i < 4; i++) {
+    waterCtx.beginPath();
+    const yOff = 10 + i * 15;
+    for (let x = 0; x < TILE_SIZE; x += 2) {
+      const y = yOff + Math.sin(x * 0.1 + i) * 3;
+      if (x === 0) waterCtx.moveTo(x, y);
+      else waterCtx.lineTo(x, y);
+    }
+    waterCtx.stroke();
+  }
+  textures.set(TileType.WATER, waterCanvas);
+
+  // Песок
+  const sandCanvas = document.createElement('canvas');
+  sandCanvas.width = TILE_SIZE;
+  sandCanvas.height = TILE_SIZE;
+  const sandCtx = sandCanvas.getContext('2d')!;
+  sandCtx.fillStyle = '#FCD34D';
+  sandCtx.fillRect(0, 0, TILE_SIZE, TILE_SIZE);
+  
+  const sandRng = mulberry32(999);
+  for (let i = 0; i < 50; i++) {
+    sandCtx.fillStyle = `rgba(180, 140, 50, ${0.1 + sandRng() * 0.2})`;
+    sandCtx.beginPath();
+    sandCtx.arc(sandRng() * TILE_SIZE, sandRng() * TILE_SIZE, sandRng() * 2, 0, Math.PI * 2);
+    sandCtx.fill();
+  }
+  textures.set(TileType.SAND, sandCanvas);
+
+  // Дорога
+  const roadCanvas = document.createElement('canvas');
+  roadCanvas.width = TILE_SIZE;
+  roadCanvas.height = TILE_SIZE;
+  const roadCtx = roadCanvas.getContext('2d')!;
+  roadCtx.fillStyle = '#9CA3AF';
+  roadCtx.fillRect(0, 0, TILE_SIZE, TILE_SIZE);
+  
+  // Камушки
+  const roadRng = mulberry32(777);
+  for (let i = 0; i < 15; i++) {
+    roadCtx.fillStyle = `rgba(100, 100, 100, ${0.3 + roadRng() * 0.3})`;
+    roadCtx.beginPath();
+    roadCtx.arc(roadRng() * TILE_SIZE, roadRng() * TILE_SIZE, 2 + roadRng() * 3, 0, Math.PI * 2);
+    roadCtx.fill();
+  }
+  
+  // Границы дороги
+  roadCtx.strokeStyle = 'rgba(80, 80, 80, 0.3)';
+  roadCtx.lineWidth = 2;
+  roadCtx.strokeRect(2, 2, TILE_SIZE - 4, TILE_SIZE - 4);
+  textures.set(TileType.ROAD, roadCanvas);
+
+  // Мост
+  const bridgeCanvas = document.createElement('canvas');
+  bridgeCanvas.width = TILE_SIZE;
+  bridgeCanvas.height = TILE_SIZE;
+  const bridgeCtx = bridgeCanvas.getContext('2d')!;
+  bridgeCtx.fillStyle = '#92400E';
+  bridgeCtx.fillRect(0, 0, TILE_SIZE, TILE_SIZE);
+  
+  // Доски
+  for (let i = 0; i < 8; i++) {
+    bridgeCtx.fillStyle = i % 2 === 0 ? '#78350F' : '#A16207';
+    bridgeCtx.fillRect(0, i * 8, TILE_SIZE, 7);
+    bridgeCtx.strokeStyle = '#451A03';
+    bridgeCtx.lineWidth = 0.5;
+    bridgeCtx.strokeRect(0, i * 8, TILE_SIZE, 7);
+  }
+  
+  // Перила
+  bridgeCtx.fillStyle = '#451A03';
+  bridgeCtx.fillRect(0, 0, 4, TILE_SIZE);
+  bridgeCtx.fillRect(TILE_SIZE - 4, 0, 4, TILE_SIZE);
+  textures.set(TileType.BRIDGE, bridgeCanvas);
+
+  // Дерево лиственное
+  textures.set(TileType.TREE_DECIDUOUS, generateTreeTexture('deciduous'));
+  
+  // Дерево хвойное
+  textures.set(TileType.TREE_CONIFER, generateTreeTexture('conifer'));
+  
+  // Дерево плодоносящее
+  textures.set(TileType.TREE_FRUIT, generateTreeTexture('fruit'));
+
+  // Цветы
+  const flowerCanvas = document.createElement('canvas');
+  flowerCanvas.width = TILE_SIZE;
+  flowerCanvas.height = TILE_SIZE;
+  const flowerCtx = flowerCanvas.getContext('2d')!;
+  flowerCtx.fillStyle = '#4ADE80';
+  flowerCtx.fillRect(0, 0, TILE_SIZE, TILE_SIZE);
+  
+  // Цветочки
+  const flowerColors = ['#F472B6', '#FB923C', '#FACC15', '#A78BFA', '#F87171'];
+  const flowerRng = mulberry32(555);
+  for (let i = 0; i < 8; i++) {
+    const fx = 10 + flowerRng() * (TILE_SIZE - 20);
+    const fy = 10 + flowerRng() * (TILE_SIZE - 20);
+    const color = flowerColors[Math.floor(flowerRng() * flowerColors.length)];
+    
+    // Стебель
+    flowerCtx.strokeStyle = '#166534';
+    flowerCtx.lineWidth = 1.5;
+    flowerCtx.beginPath();
+    flowerCtx.moveTo(fx, fy + 6);
+    flowerCtx.lineTo(fx, fy + 14);
+    flowerCtx.stroke();
+    
+    // Лепестки
+    flowerCtx.fillStyle = color;
+    for (let p = 0; p < 5; p++) {
+      const angle = (p / 5) * Math.PI * 2;
+      flowerCtx.beginPath();
+      flowerCtx.arc(fx + Math.cos(angle) * 3, fy + Math.sin(angle) * 3, 2.5, 0, Math.PI * 2);
+      flowerCtx.fill();
+    }
+    // Центр
+    flowerCtx.fillStyle = '#FCD34D';
+    flowerCtx.beginPath();
+    flowerCtx.arc(fx, fy, 2, 0, Math.PI * 2);
+    flowerCtx.fill();
+  }
+  textures.set(TileType.FLOWER, flowerCanvas);
+
+  // Куст
+  const bushCanvas = document.createElement('canvas');
+  bushCanvas.width = TILE_SIZE;
+  bushCanvas.height = TILE_SIZE;
+  const bushCtx = bushCanvas.getContext('2d')!;
+  bushCtx.fillStyle = '#4ADE80';
+  bushCtx.fillRect(0, 0, TILE_SIZE, TILE_SIZE);
+  
+  // Куст
+  bushCtx.fillStyle = '#15803D';
+  bushCtx.beginPath();
+  bushCtx.arc(32, 38, 16, 0, Math.PI * 2);
+  bushCtx.fill();
+  bushCtx.fillStyle = '#166534';
+  bushCtx.beginPath();
+  bushCtx.arc(26, 34, 10, 0, Math.PI * 2);
+  bushCtx.fill();
+  bushCtx.fillStyle = '#22C55E';
+  bushCtx.beginPath();
+  bushCtx.arc(38, 32, 11, 0, Math.PI * 2);
+  bushCtx.fill();
+  // Блик
+  bushCtx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+  bushCtx.beginPath();
+  bushCtx.arc(34, 28, 5, 0, Math.PI * 2);
+  bushCtx.fill();
+  textures.set(TileType.BUSH, bushCanvas);
+
+  // Дом
+  const houseCanvas = document.createElement('canvas');
+  houseCanvas.width = TILE_SIZE;
+  houseCanvas.height = TILE_SIZE;
+  const houseCtx = houseCanvas.getContext('2d')!;
+  houseCtx.fillStyle = '#4ADE80';
+  houseCtx.fillRect(0, 0, TILE_SIZE, TILE_SIZE);
+  
+  // Стены дома
+  houseCtx.fillStyle = '#FBBF24';
+  houseCtx.fillRect(12, 24, 40, 32);
+  houseCtx.strokeStyle = '#92400E';
+  houseCtx.lineWidth = 2;
+  houseCtx.strokeRect(12, 24, 40, 32);
+  
+  // Крыша
+  houseCtx.fillStyle = '#DC2626';
+  houseCtx.beginPath();
+  houseCtx.moveTo(8, 24);
+  houseCtx.lineTo(32, 8);
+  houseCtx.lineTo(56, 24);
+  houseCtx.closePath();
+  houseCtx.fill();
+  houseCtx.strokeStyle = '#991B1B';
+  houseCtx.stroke();
+  
+  // Дверь
+  houseCtx.fillStyle = '#78350F';
+  houseCtx.fillRect(26, 38, 12, 18);
+  houseCtx.strokeStyle = '#451A03';
+  houseCtx.strokeRect(26, 38, 12, 18);
+  
+  // Ручка двери
+  houseCtx.fillStyle = '#FCD34D';
+  houseCtx.beginPath();
+  houseCtx.arc(35, 48, 1.5, 0, Math.PI * 2);
+  houseCtx.fill();
+  
+  // Окна
+  houseCtx.fillStyle = '#93C5FD';
+  houseCtx.fillRect(16, 30, 8, 8);
+  houseCtx.fillRect(40, 30, 8, 8);
+  houseCtx.strokeStyle = '#78350F';
+  houseCtx.lineWidth = 1;
+  houseCtx.strokeRect(16, 30, 8, 8);
+  houseCtx.strokeRect(40, 30, 8, 8);
+  // Крест на окнах
+  houseCtx.beginPath();
+  houseCtx.moveTo(20, 30);
+  houseCtx.lineTo(20, 38);
+  houseCtx.moveTo(16, 34);
+  houseCtx.lineTo(24, 34);
+  houseCtx.moveTo(44, 30);
+  houseCtx.lineTo(44, 38);
+  houseCtx.moveTo(40, 34);
+  houseCtx.lineTo(48, 34);
+  houseCtx.stroke();
+  
+  textures.set(TileType.HOUSE, houseCanvas);
+
+  return textures;
+}
+
+function generateTreeTexture(type: string): HTMLCanvasElement {
+  const canvas = document.createElement('canvas');
+  canvas.width = TILE_SIZE;
+  canvas.height = TILE_SIZE;
+  const ctx = canvas.getContext('2d')!;
+  
+  // Прозрачный фон (трава под деревом)
+  ctx.fillStyle = '#4ADE80';
+  ctx.fillRect(0, 0, TILE_SIZE, TILE_SIZE);
+
+  // Тень
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
+  ctx.beginPath();
+  ctx.ellipse(32, 56, 14, 5, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  if (type === 'deciduous') {
+    // Ствол
+    ctx.fillStyle = '#78350F';
+    ctx.fillRect(28, 36, 8, 20);
+    ctx.strokeStyle = '#451A03';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(28, 36, 8, 20);
+    
+    // Крона
+    ctx.fillStyle = '#15803D';
+    ctx.beginPath();
+    ctx.arc(32, 24, 18, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#22C55E';
+    ctx.beginPath();
+    ctx.arc(28, 20, 12, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#16A34A';
+    ctx.beginPath();
+    ctx.arc(38, 22, 10, 0, Math.PI * 2);
+    ctx.fill();
+    // Блик
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+    ctx.beginPath();
+    ctx.arc(26, 16, 6, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (type === 'conifer') {
+    // Ствол
+    ctx.fillStyle = '#78350F';
+    ctx.fillRect(29, 40, 6, 16);
+    
+    // Ёлка (треугольники)
+    ctx.fillStyle = '#166534';
+    ctx.beginPath();
+    ctx.moveTo(32, 6);
+    ctx.lineTo(18, 28);
+    ctx.lineTo(46, 28);
+    ctx.closePath();
+    ctx.fill();
+    
+    ctx.fillStyle = '#15803D';
+    ctx.beginPath();
+    ctx.moveTo(32, 14);
+    ctx.lineTo(14, 38);
+    ctx.lineTo(50, 38);
+    ctx.closePath();
+    ctx.fill();
+    
+    ctx.fillStyle = '#166534';
+    ctx.beginPath();
+    ctx.moveTo(32, 22);
+    ctx.lineTo(12, 46);
+    ctx.lineTo(52, 46);
+    ctx.closePath();
+    ctx.fill();
+    
+    // Блик
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+    ctx.beginPath();
+    ctx.moveTo(32, 8);
+    ctx.lineTo(26, 20);
+    ctx.lineTo(32, 18);
+    ctx.closePath();
+    ctx.fill();
+  } else if (type === 'fruit') {
+    // Ствол
+    ctx.fillStyle = '#78350F';
+    ctx.fillRect(28, 36, 8, 20);
+    ctx.strokeStyle = '#451A03';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(28, 36, 8, 20);
+    
+    // Крона
+    ctx.fillStyle = '#22C55E';
+    ctx.beginPath();
+    ctx.arc(32, 24, 18, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#4ADE80';
+    ctx.beginPath();
+    ctx.arc(26, 20, 10, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Фрукты (яблоки)
+    const fruitPositions = [
+      { x: 24, y: 18 }, { x: 38, y: 20 }, { x: 30, y: 28 },
+      { x: 20, y: 26 }, { x: 40, y: 28 },
+    ];
+    fruitPositions.forEach(fp => {
+      ctx.fillStyle = '#EF4444';
+      ctx.beginPath();
+      ctx.arc(fp.x, fp.y, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+      ctx.beginPath();
+      ctx.arc(fp.x - 1, fp.y - 1, 1, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  }
+
+  return canvas;
+}
+
+// Генератор псевдослучайных чисел (детерминированный)
+function mulberry32(seed: number): () => number {
+  return function() {
+    seed |= 0;
+    seed = seed + 0x6D2B79F5 | 0;
+    let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
