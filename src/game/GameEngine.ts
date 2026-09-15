@@ -232,10 +232,15 @@ export class GameEngine {
 
       // Определяем направление (только если не прыгаем)
       if (!player.isJumping) {
+        const oldDir = player.direction;
         if (Math.abs(inputX) > Math.abs(inputY)) {
           player.direction = inputX > 0 ? 'right' : 'left';
         } else {
           player.direction = inputY > 0 ? 'down' : 'up';
+        }
+        // Отладка: выводим изменение направления
+        if (oldDir !== player.direction) {
+          console.log('Direction changed:', oldDir, '->', player.direction);
         }
       }
 
@@ -526,7 +531,8 @@ export class GameEngine {
           if (texture) {
             const drawX = x * TILE_SIZE;
             const drawY = y * TILE_SIZE;
-            const objY = drawY + TILE_SIZE;
+            // Точка привязки для Y-sorting - основание объекта
+            const objY = drawY + TILE_SIZE - 10; // Основание дерева/дома
             
             renderObjects.push({
               y: objY,
@@ -535,9 +541,11 @@ export class GameEngine {
                 if (tileType >= TileType.TREE_DECIDUOUS && tileType <= TileType.TREE_FRUIT) {
                   ctx.save();
                   const sway = Math.sin(this.gameTime * 1.5 + x + y) * 1;
+                  // Точка вращения - основание дерева
                   ctx.translate(drawX + TILE_SIZE / 2, drawY + TILE_SIZE);
                   ctx.rotate((sway * Math.PI) / 180);
-                  ctx.drawImage(texture, -TILE_SIZE / 2, -TILE_SIZE);
+                  // Рисуем дерево со смещением вверх (высота текстуры 1.5 тайла)
+                  ctx.drawImage(texture, -TILE_SIZE / 2, -texture.height, TILE_SIZE, texture.height);
                   ctx.restore();
                 } else {
                   ctx.drawImage(texture, drawX, drawY);
@@ -549,9 +557,9 @@ export class GameEngine {
       }
     }
 
-    // Игрок
+    // Игрок (точка привязки - ноги)
     renderObjects.push({
-      y: this.player.y + 30,
+      y: this.player.y + 28, // Основание персонажа (ноги)
       render: () => this.renderPlayer(ctx),
     });
 
