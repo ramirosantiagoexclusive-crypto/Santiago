@@ -2,6 +2,7 @@ import React from 'react';
 
 interface ServerStatusProps {
   connected: boolean;
+  connecting: boolean;
   status: string;
   playersCount: number;
   myName: string;
@@ -10,6 +11,7 @@ interface ServerStatusProps {
 
 export const ServerStatus: React.FC<ServerStatusProps> = ({
   connected,
+  connecting,
   status,
   playersCount,
   myName,
@@ -19,9 +21,17 @@ export const ServerStatus: React.FC<ServerStatusProps> = ({
     <div className="fixed top-4 right-4 z-30 bg-gray-800/90 backdrop-blur-sm rounded-lg p-3 border border-gray-600/50 max-w-[250px]">
       {/* Статус подключения */}
       <div className="flex items-center gap-2 mb-2">
-        <div className={`w-2 h-2 rounded-full ${connected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
-        <span className={`text-sm font-bold ${connected ? 'text-green-400' : 'text-red-400'}`}>
-          {connected ? 'Онлайн' : 'Оффлайн'}
+        <div className={`w-2 h-2 rounded-full ${
+          connected ? 'bg-green-500 animate-pulse' : 
+          connecting ? 'bg-yellow-500 animate-pulse' : 
+          'bg-red-500'
+        }`}></div>
+        <span className={`text-sm font-bold ${
+          connected ? 'text-green-400' : 
+          connecting ? 'text-yellow-400' : 
+          'text-red-400'
+        }`}>
+          {connected ? 'Онлайн' : connecting ? 'Подключение...' : 'Оффлайн'}
         </span>
       </div>
 
