@@ -31,6 +31,7 @@ interface Particle {
   size: number;
   color: string;
   alpha: number;
+  type?: 'normal' | 'shockwave';
 }
 
 // Интерфейс камеры
@@ -46,8 +47,8 @@ const WALK_SPEED = 2.5;
 const RUN_SPEED = 4.5;
 const ACCELERATION = 0.3;
 const DECELERATION = 0.85;
-const JUMP_FORCE = -8;
-const GRAVITY = 0.4;
+const JUMP_FORCE = -10; // Усиленный прыжок
+const GRAVITY = 0.5;
 const CAMERA_LERP = 0.08;
 
 export class GameEngine {
@@ -216,8 +217,11 @@ export class GameEngine {
 
     // Ускорение/торможение
     if (inputX !== 0 || inputY !== 0) {
-      player.vx += inputX * ACCELERATION;
-      player.vy += inputY * ACCELERATION;
+      // Во время прыжка применяем инерцию, но не меняем направление резко
+      const moveMultiplier = player.isJumping ? 0.3 : 1;
+      
+      player.vx += inputX * ACCELERATION * moveMultiplier;
+      player.vy += inputY * ACCELERATION * moveMultiplier;
       
       // Ограничение скорости
       const currentSpeed = Math.sqrt(player.vx * player.vx + player.vy * player.vy);
@@ -226,71 +230,94 @@ export class GameEngine {
         player.vy = (player.vy / currentSpeed) * speed;
       }
 
-      // Определяем направление
-      if (Math.abs(inputX) > Math.abs(inputY)) {
-        player.direction = inputX > 0 ? 'right' : 'left';
-      } else {
-        player.direction = inputY > 0 ? 'down' : 'up';
+      // Определяем направление (только если не прыгаем)
+      if (!player.isJumping) {
+        if (Math.abs(inputX) > Math.abs(inputY)) {
+          player.direction = inputX > 0 ? 'right' : 'left';
+        } else {
+          player.direction = inputY > 0 ? 'down' : 'up';
+        }
       }
 
-      // Анимация
-      if (!player.isJumping && !player.emotion) {
+      // Анимация (прыжок имеет приоритет)
+      if (player.isJumping) {
+        player.animation = 'jump';
+        // Обновляем кадр прыжка в зависимости от высоты
+        if (player.jumpVelocity < -4) {
+          player.frameIndex = 1; // Взлёт
+        } else if (player.jumpVelocity < 0) {
+          player.frameIndex = 2; // Пик
+        } else {
+          player.frameIndex = 3; // Приземление
+        }
+      } else if (!player.emotion) {
         player.animation = player.isRunning ? 'run' : 'walk';
       }
 
-      // Покачивание при ходьбе
-      player.bobOffset += dt * (player.isRunning ? 12 : 8);
+      // Покачивание при ходьбе (только если не прыгаем)
+      if (!player.isJumping) {
+        player.bobOffset += dt * (player.isRunning ? 12 : 8);
+      }
 
-      // Частицы пыли при беге
-      if (player.isRunning && Math.random() < 0.3) {
+      // Частицы пыли при беге (только если не прыгаем)
+      if (player.isRunning && !player.isJumping && Math.random() < 0.3) {
         this.spawnDustParticle();
       }
     } else {
-      // Торможение
-      player.vx *= DECELERATION;
-      player.vy *= DECELERATION;
+      // Торможение (во время прыжка торможение меньше - инерция)
+      const decel = player.isJumping ? 0.98 : DECELERATION;
+      player.vx *= decel;
+      player.vy *= decel;
 
       if (Math.abs(player.vx) < 0.1) player.vx = 0;
       if (Math.abs(player.vy) < 0.1) player.vy = 0;
 
-      if (!player.isJumping && !player.emotion) {
+      // Анимация (прыжок имеет приоритет)
+      if (player.isJumping) {
+        player.animation = 'jump';
+        if (player.jumpVelocity < -4) {
+          player.frameIndex = 1;
+        } else if (player.jumpVelocity < 0) {
+          player.frameIndex = 2;
+        } else {
+          player.frameIndex = 3;
+        }
+      } else if (!player.emotion) {
         player.animation = 'idle';
       }
     }
 
-    // Обновление позиции
-    if (!player.isJumping) {
-      const newX = player.x + player.vx;
-      const newY = player.y + player.vy;
+    // Обновление позиции (всегда, включая прыжок)
+    const newX = player.x + player.vx;
+    const newY = player.y + player.vy;
 
-      // Проверка столкновений
-      const tileX = Math.floor(newX / TILE_SIZE);
-      const tileY = Math.floor(newY / TILE_SIZE);
+    // Проверка столкновений
+    const tileX = Math.floor(newX / TILE_SIZE);
+    const tileY = Math.floor(newY / TILE_SIZE);
 
-      if (tileX >= 0 && tileX < MAP_WIDTH && tileY >= 0 && tileY < MAP_HEIGHT) {
-        if (isWalkable(this.map[tileY][tileX])) {
+    if (tileX >= 0 && tileX < MAP_WIDTH && tileY >= 0 && tileY < MAP_HEIGHT) {
+      if (isWalkable(this.map[tileY][tileX])) {
+        player.x = newX;
+        player.y = newY;
+      } else {
+        // Пробуем двигаться по осям отдельно
+        const tileXOnly = Math.floor(newX / TILE_SIZE);
+        const tileYOnly = Math.floor(player.y / TILE_SIZE);
+        if (tileXOnly >= 0 && tileXOnly < MAP_WIDTH && isWalkable(this.map[tileYOnly][tileXOnly])) {
           player.x = newX;
+        }
+        
+        const tileXOnly2 = Math.floor(player.x / TILE_SIZE);
+        const tileYOnly2 = Math.floor(newY / TILE_SIZE);
+        if (tileYOnly2 >= 0 && tileYOnly2 < MAP_HEIGHT && isWalkable(this.map[tileYOnly2][tileXOnly2])) {
           player.y = newY;
-        } else {
-          // Пробуем двигаться по осям отдельно
-          const tileXOnly = Math.floor(newX / TILE_SIZE);
-          const tileYOnly = Math.floor(player.y / TILE_SIZE);
-          if (tileXOnly >= 0 && tileXOnly < MAP_WIDTH && isWalkable(this.map[tileYOnly][tileXOnly])) {
-            player.x = newX;
-          }
-          
-          const tileXOnly2 = Math.floor(player.x / TILE_SIZE);
-          const tileYOnly2 = Math.floor(newY / TILE_SIZE);
-          if (tileYOnly2 >= 0 && tileYOnly2 < MAP_HEIGHT && isWalkable(this.map[tileYOnly2][tileXOnly2])) {
-            player.y = newY;
-          }
         }
       }
-
-      // Границы карты
-      player.x = Math.max(TILE_SIZE, Math.min(player.x, (MAP_WIDTH - 1) * TILE_SIZE));
-      player.y = Math.max(TILE_SIZE, Math.min(player.y, (MAP_HEIGHT - 1) * TILE_SIZE));
     }
+
+    // Границы карты
+    player.x = Math.max(TILE_SIZE, Math.min(player.x, (MAP_WIDTH - 1) * TILE_SIZE));
+    player.y = Math.max(TILE_SIZE, Math.min(player.y, (MAP_HEIGHT - 1) * TILE_SIZE));
 
     // Прыжок (физика)
     if (player.isJumping) {
@@ -302,6 +329,7 @@ export class GameEngine {
         player.jumpVelocity = 0;
         player.isJumping = false;
         player.animation = 'idle';
+        player.frameIndex = 0;
         // Частицы при приземлении
         this.spawnJumpParticles();
       }
@@ -386,19 +414,41 @@ export class GameEngine {
   }
 
   private spawnJumpParticles(): void {
-    for (let i = 0; i < 8; i++) {
-      const angle = (i / 8) * Math.PI * 2;
+    // Больше частиц при прыжке
+    for (let i = 0; i < 12; i++) {
+      const angle = (i / 12) * Math.PI * 2;
+      const speed = 3 + Math.random() * 3;
       this.particles.push({
         x: this.player.x,
         y: this.player.y + 20,
-        vx: Math.cos(angle) * (2 + Math.random() * 2),
-        vy: Math.sin(angle) * 2 - 2,
-        life: 0.6,
-        maxLife: 0.6,
-        size: 2 + Math.random() * 2,
-        color: '#A78BFA',
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - 3,
+        life: 0.8,
+        maxLife: 0.8,
+        size: 3 + Math.random() * 3,
+        color: i % 2 === 0 ? '#A78BFA' : '#60A5FA',
         alpha: 1,
+        type: 'normal',
       });
+    }
+    
+    // Shockwave при приземлении (если прыгали)
+    if (this.player.jumpHeight < -5) {
+      for (let i = 0; i < 8; i++) {
+        const angle = (i / 8) * Math.PI * 2;
+        this.particles.push({
+          x: this.player.x,
+          y: this.player.y + 28,
+          vx: Math.cos(angle) * 5,
+          vy: Math.sin(angle) * 1,
+          life: 0.5,
+          maxLife: 0.5,
+          size: 4,
+          color: '#FCD34D',
+          alpha: 1,
+          type: 'shockwave',
+        });
+      }
     }
   }
 
@@ -551,10 +601,11 @@ export class GameEngine {
 
     // 2.5D эффекты - Тень под персонажем
     ctx.save();
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+    const shadowAlpha = player.isJumping ? 0.15 : 0.3;
+    const shadowScale = player.isJumping ? Math.max(0.3, 1 + player.jumpHeight * 0.015) : 1;
+    ctx.fillStyle = `rgba(0, 0, 0, ${shadowAlpha})`;
     ctx.beginPath();
-    const shadowScale = 1 - player.jumpHeight * 0.01;
-    ctx.ellipse(player.x, player.y + 28, 14 * Math.max(0.5, shadowScale), 5 * Math.max(0.5, shadowScale), 0, 0, Math.PI * 2);
+    ctx.ellipse(player.x, player.y + 28, 14 * shadowScale, 5 * shadowScale, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
 
@@ -565,7 +616,7 @@ export class GameEngine {
     // Масштабирование при прыжке
     ctx.save();
     if (player.isJumping) {
-      const jumpScale = 1 + Math.abs(player.jumpHeight) * 0.003;
+      const jumpScale = 1 + Math.abs(player.jumpHeight) * 0.005; // Усиленный эффект
       ctx.translate(player.x, drawY + FRAME_SIZE / 2);
       ctx.scale(jumpScale, jumpScale);
       ctx.drawImage(
@@ -586,10 +637,22 @@ export class GameEngine {
   private renderParticles(ctx: CanvasRenderingContext2D): void {
     for (const p of this.particles) {
       ctx.globalAlpha = p.alpha;
-      ctx.fillStyle = p.color;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-      ctx.fill();
+      
+      if (p.type === 'shockwave') {
+        // Shockwave - расширяющееся кольцо
+        ctx.strokeStyle = p.color;
+        ctx.lineWidth = 2;
+        const radius = p.size * (1 - p.alpha) * 8;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+        ctx.stroke();
+      } else {
+        // Обычные частицы
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
     ctx.globalAlpha = 1;
   }

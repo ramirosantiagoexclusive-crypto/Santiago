@@ -98,6 +98,27 @@ class CharacterDrawer {
       legSwing = Math.sin(animFrame * Math.PI / 3) * 12;
     } else if (animType === 'idle') {
       bobY = Math.sin(animFrame * Math.PI / 2) * 1;
+    } else if (animType === 'jump') {
+      // Разные позы для прыжка
+      if (animFrame === 0) {
+        // Подготовка (присед)
+        bobY = 4;
+        legSwing = -3;
+      } else if (animFrame === 1) {
+        // Взлёт (руки вверх, ноги вместе)
+        bobY = -2;
+        armSwing = -20;
+        legSwing = -2;
+      } else if (animFrame === 2) {
+        // Пик (раскинутые руки)
+        bobY = -4;
+        armSwing = -15;
+        legSwing = 3;
+      } else {
+        // Приземление (группировка)
+        bobY = 2;
+        legSwing = 2;
+      }
     }
 
     ctx.translate(leanX, bobY);
@@ -787,14 +808,10 @@ export function generateSpriteSheet(): SpriteSheet {
   }
 
   // Jump анимация (4 кадра, направление вниз)
+  // Смещение обрабатывается динамически в GameEngine через jumpHeight
   for (let f = 0; f < 4; f++) {
-    ctx.save();
     const tempDrawer = new CharacterDrawer(ctx, 0, currentRow * FRAME_SIZE);
-    // Для прыжка добавляем вертикальное смещение
-    const jumpOffsets = [0, -8, -12, -4];
-    ctx.translate(0, jumpOffsets[f]);
     tempDrawer.drawFrame('down', f, 'jump');
-    ctx.restore();
     currentRow++;
   }
 
