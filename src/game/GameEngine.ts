@@ -66,6 +66,16 @@ export class GameEngine {
   private gameTime: number = 0;
   private onStateChange: ((state: GameState) => void) | null = null;
   private waterAnimOffset: number = 0;
+  private otherPlayers: Array<{
+    id: string;
+    name: string;
+    x: number;
+    y: number;
+    direction: Direction;
+    animation: AnimationType;
+    emotion: Emotion | null;
+    color: string;
+  }> = [];
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -169,6 +179,112 @@ export class GameEngine {
       this.player.frameIndex = 0;
       this.player.frameTimer = 0;
     }
+  }
+
+  // Внешнее управление (для виртуального джойстика)
+  setExternalInput(x: number, y: number): void {
+    // Преобразуем нормализованные значения (-1 до 1) в нажатия клавиш
+    const threshold = 0.3;
+    
+    if (Math.abs(x) > threshold || Math.abs(y) > threshold) {
+      // Очищаем существующие "виртуальные" клавиши
+      this.keys.delete('w');
+      this.keys.delete('a');
+      this.keys.delete('s');
+      this.keys.delete('d');
+      
+      if (y < -threshold) this.keys.add('w');
+      if (y > threshold) this.keys.add('s');
+      if (x < -threshold) this.keys.add('a');
+      if (x > threshold) this.keys.add('d');
+    } else {
+      this.keys.delete('w');
+      this.keys.delete('a');
+      this.keys.delete('s');
+      this.keys.delete('d');
+    }
+  }
+
+  clearExternalInput(): void {
+    this.keys.delete('w');
+    this.keys.delete('a');
+    this.keys.delete('s');
+    this.keys.delete('d');
+  }
+
+  setRunning(running: boolean): void {
+    if (running) {
+      this.keys.add('shift');
+    } else {
+      this.keys.delete('shift');
+    }
+  }
+
+  doJump(): void {
+    if (!this.player.isJumping) {
+      this.player.isJumping = true;
+      this.player.jumpVelocity = JUMP_FORCE;
+      this.player.animation = 'jump';
+      this.player.frameIndex = 0;
+      this.spawnJumpParticles();
+    }
+  }
+
+  // Установить список других игроков (для мультиплеера)
+  setOtherPlayers(players: Array<{
+    id: string;
+    name: string;
+    x: number;
+    y: number;
+    direction: Direction;
+    animation: AnimationType;
+    emotion: Emotion | null;
+    color: string;
+  }>): void {
+    this.otherPlayers = players;
+  }
+
+  // Рендеринг другого игрока
+  private renderOtherPlayer(ctx: CanvasRenderingContext2D, otherPlayer: typeof this.otherPlayers[0]): void {
+    if (!this.spriteSheet) return;
+
+    // Определяем кадр
+    let frameRow = 0;
+    if (otherPlayer.animation === 'idle') {
+      const dirOffset = { down: 0, up: 4, left: 8, right: 12 }[otherPlayer.direction];
+      frameRow = dirOffset;
+    } else if (otherPlayer.animation === 'walk') {
+      const dirOffset = { down: 16, up: 22, left: 28, right: 34 }[otherPlayer.direction];
+      frameRow = dirOffset + Math.floor(this.gameTime * 8) % 6;
+    } else if (otherPlayer.animation === 'run') {
+      const dirOffset = { down: 40, up: 46, left: 52, right: 58 }[otherPlayer.direction];
+      frameRow = dirOffset + Math.floor(this.gameTime * 12) % 6;
+    }
+
+    const drawX = otherPlayer.x - FRAME_SIZE / 2;
+    const drawY = otherPlayer.y - FRAME_SIZE / 2;
+
+    // Тень
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+    ctx.beginPath();
+    ctx.ellipse(otherPlayer.x, otherPlayer.y + 28, 14, 5, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Спрайт
+    ctx.drawImage(
+      this.spriteSheet,
+      0, frameRow * FRAME_SIZE, FRAME_SIZE, FRAME_SIZE,
+      drawX, drawY, FRAME_SIZE, FRAME_SIZE
+    );
+
+    // Имя над игроком
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+    ctx.fillRect(otherPlayer.x - 30, otherPlayer.y - 48, 60, 16);
+    ctx.fillStyle = otherPlayer.color || '#FFFFFF';
+    ctx.font = 'bold 10px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(otherPlayer.name, otherPlayer.x, otherPlayer.y - 36);
+    ctx.textAlign = 'left';
   }
 
   // Основной игровой цикл
@@ -562,6 +678,14 @@ export class GameEngine {
       y: this.player.y + 28, // Основание персонажа (ноги)
       render: () => this.renderPlayer(ctx),
     });
+
+    // Другие игроки из мультиплеера
+    for (const otherPlayer of this.otherPlayers) {
+      renderObjects.push({
+        y: otherPlayer.y + 28,
+        render: () => this.renderOtherPlayer(ctx, otherPlayer),
+      });
+    }
 
     // Сортировка по Y (Y-sorting)
     renderObjects.sort((a, b) => a.y - b.y);
