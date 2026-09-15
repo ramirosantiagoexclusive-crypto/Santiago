@@ -46,13 +46,8 @@ const COLORS = {
   heart: '#EF4444',
 };
 
-// Типы направлений
 export type Direction = 'down' | 'up' | 'left' | 'right';
-
-// Типы анимаций
 export type AnimationType = 'idle' | 'walk' | 'run' | 'jump' | 'emotion';
-
-// Эмоции
 export type Emotion = 'happy' | 'sad' | 'angry' | 'surprised' | 'love' | 'wink';
 
 interface SpriteSheet {
@@ -60,28 +55,38 @@ interface SpriteSheet {
   ctx: CanvasRenderingContext2D;
 }
 
-// Класс для рисования персонажа в одном кадре
+// Класс для рисования персонажа с учётом направления
 class CharacterDrawer {
   private ctx: CanvasRenderingContext2D;
-  private offsetX: number;
-  private offsetY: number;
 
-  constructor(ctx: CanvasRenderingContext2D, offsetX: number, offsetY: number) {
+  constructor(ctx: CanvasRenderingContext2D) {
     this.ctx = ctx;
-    this.offsetX = offsetX;
-    this.offsetY = offsetY;
   }
 
-  // Рисуем тело персонажа с учётом направления и анимации
-  drawFrame(direction: Direction, animFrame: number, animType: AnimationType, emotion?: Emotion) {
+  // Рисуем персонажа в указанной позиции
+  drawFrame(offsetX: number, offsetY: number, direction: Direction, animFrame: number, animType: AnimationType, emotion?: Emotion) {
     const ctx = this.ctx;
-    const ox = this.offsetX;
-    const oy = this.offsetY;
 
     ctx.save();
-    ctx.translate(ox, oy);
+    ctx.translate(offsetX, offsetY);
 
-    // Смещение для анимации ходьбы/бега
+    // Для направлений left/right применяем горизонтальное отражение
+    if (direction === 'left') {
+      ctx.translate(FRAME_SIZE, 0);
+      ctx.scale(-1, 1);
+      // Рисуем как right, но зеркально
+      this.drawCharacter('right', animFrame, animType, emotion);
+    } else {
+      this.drawCharacter(direction, animFrame, animType, emotion);
+    }
+
+    ctx.restore();
+  }
+
+  private drawCharacter(direction: Direction, animFrame: number, animType: AnimationType, emotion?: Emotion) {
+    const ctx = this.ctx;
+
+    // Смещение для анимации
     let bobY = 0;
     let leanX = 0;
     let armSwing = 0;
@@ -89,225 +94,298 @@ class CharacterDrawer {
 
     if (animType === 'walk') {
       bobY = Math.sin(animFrame * Math.PI / 3) * 2;
-      armSwing = Math.sin(animFrame * Math.PI / 3) * 8;
-      legSwing = Math.sin(animFrame * Math.PI / 3) * 6;
+      armSwing = Math.sin(animFrame * Math.PI / 3) * 10;
+      legSwing = Math.sin(animFrame * Math.PI / 3) * 8;
     } else if (animType === 'run') {
       bobY = Math.sin(animFrame * Math.PI / 3) * 3;
-      leanX = direction === 'right' ? 3 : direction === 'left' ? -3 : 0;
-      armSwing = Math.sin(animFrame * Math.PI / 3) * 15;
-      legSwing = Math.sin(animFrame * Math.PI / 3) * 12;
+      leanX = 2;
+      armSwing = Math.sin(animFrame * Math.PI / 3) * 18;
+      legSwing = Math.sin(animFrame * Math.PI / 3) * 14;
     } else if (animType === 'idle') {
       bobY = Math.sin(animFrame * Math.PI / 2) * 1;
     } else if (animType === 'jump') {
-      // Разные позы для прыжка
       if (animFrame === 0) {
-        // Подготовка (присед)
         bobY = 4;
         legSwing = -3;
       } else if (animFrame === 1) {
-        // Взлёт (руки вверх, ноги вместе)
         bobY = -2;
         armSwing = -20;
         legSwing = -2;
       } else if (animFrame === 2) {
-        // Пик (раскинутые руки)
         bobY = -4;
         armSwing = -15;
         legSwing = 3;
       } else {
-        // Приземление (группировка)
         bobY = 2;
         legSwing = 2;
       }
     }
 
+    ctx.save();
     ctx.translate(leanX, bobY);
 
-    // Рисуем тень
-    this.drawShadow();
-
-    // Рисуем ноги
-    this.drawLegs(direction, legSwing);
-
-    // Рисуем ботинки
-    this.drawBoots(direction, legSwing);
-
-    // Рисуем тело (куртка)
-    this.drawBody(direction);
-
-    // Рисуем руки
-    this.drawArms(direction, armSwing, emotion);
-
-    // Рисуем голову
-    this.drawHead(direction, emotion, animType, animFrame);
+    // Рисуем в зависимости от направления
+    if (direction === 'down') {
+      this.drawFront(armSwing, legSwing, emotion, animFrame);
+    } else if (direction === 'up') {
+      this.drawBack(armSwing, legSwing);
+    } else if (direction === 'right') {
+      this.drawSide(armSwing, legSwing, false, emotion);
+    }
 
     ctx.restore();
   }
 
-  private drawShadow() {
-    // Тень рисуется динамически в GameEngine для 2.5D эффекта
-    // Здесь оставляем пустым
+  // Вид спереди (down)
+  private drawFront(armSwing: number, legSwing: number, emotion?: Emotion, animFrame?: number) {
+    const ctx = this.ctx;
+
+    // Ноги
+    this.drawLegsFront(legSwing);
+    // Ботинки
+    this.drawBootsFront(legSwing);
+    // Тело
+    this.drawBodyFront();
+    // Руки
+    this.drawArmsFront(armSwing, emotion);
+    // Голова
+    this.drawHeadFront(emotion, animFrame);
   }
 
-  private drawLegs(direction: Direction, swing: number) {
+  // Вид сзади (up)
+  private drawBack(armSwing: number, legSwing: number) {
     const ctx = this.ctx;
-    
-    // Левая нога
+
+    // Ноги
+    this.drawLegsFront(legSwing);
+    // Ботинки
+    this.drawBootsFront(legSwing);
+    // Тело (спина)
+    this.drawBodyBack();
+    // Руки
+    this.drawArmsFront(armSwing);
+    // Голова (сзади - волосы)
+    this.drawHeadBack();
+  }
+
+  // Вид сбоку (right, для left будет зеркально)
+  private drawSide(armSwing: number, legSwing: number, mirror: boolean, emotion?: Emotion) {
+    const ctx = this.ctx;
+
+    // Ноги (одна видна)
+    this.drawLegsSide(legSwing);
+    // Ботинки
+    this.drawBootsSide(legSwing);
+    // Тело
+    this.drawBodySide();
+    // Рука (одна видна)
+    this.drawArmsSide(armSwing, emotion);
+    // Голова
+    this.drawHeadSide(emotion);
+  }
+
+  // === НОГИ ===
+  private drawLegsFront(swing: number) {
+    const ctx = this.ctx;
     ctx.fillStyle = COLORS.pants;
     ctx.strokeStyle = COLORS.outline;
     ctx.lineWidth = 1;
-    
-    const leftLegX = 26;
-    const rightLegX = 34;
-    const legY = 44;
-    const legH = 10;
-    const legW = 6;
 
     // Левая нога
     ctx.beginPath();
-    ctx.roundRect(leftLegX - swing * 0.3, legY, legW, legH, 2);
+    ctx.roundRect(26 - swing * 0.3, 44, 6, 10, 2);
     ctx.fill();
     ctx.stroke();
 
     // Правая нога
     ctx.beginPath();
-    ctx.roundRect(rightLegX + swing * 0.3, legY, legW, legH, 2);
+    ctx.roundRect(34 + swing * 0.3, 44, 6, 10, 2);
     ctx.fill();
     ctx.stroke();
 
-    // Тени на штанах
+    // Тени
     ctx.fillStyle = COLORS.pantsDark;
-    ctx.beginPath();
-    ctx.roundRect(leftLegX - swing * 0.3 + 1, legY + 2, 2, legH - 4, 1);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.roundRect(rightLegX + swing * 0.3 + 1, legY + 2, 2, legH - 4, 1);
-    ctx.fill();
+    ctx.fillRect(27 - swing * 0.3, 46, 2, 6);
+    ctx.fillRect(35 + swing * 0.3, 46, 2, 6);
   }
 
-  private drawBoots(direction: Direction, swing: number) {
+  private drawLegsSide(swing: number) {
     const ctx = this.ctx;
-    const bootY = 53;
-    const bootW = 8;
-    const bootH = 5;
+    ctx.fillStyle = COLORS.pants;
+    ctx.strokeStyle = COLORS.outline;
+    ctx.lineWidth = 1;
+
+    // Одна нога видна (задняя нога немного позади)
+    ctx.beginPath();
+    ctx.roundRect(29 - swing * 0.4, 44, 7, 10, 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Тень
+    ctx.fillStyle = COLORS.pantsDark;
+    ctx.fillRect(30 - swing * 0.4, 46, 2, 6);
+  }
+
+  // === БОТИНКИ ===
+  private drawBootsFront(swing: number) {
+    const ctx = this.ctx;
 
     // Левый ботинок
     ctx.fillStyle = COLORS.boots;
     ctx.strokeStyle = COLORS.outline;
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.roundRect(24 - swing * 0.3, bootY, bootW, bootH, 2);
+    ctx.roundRect(24 - swing * 0.3, 53, 8, 5, 2);
     ctx.fill();
     ctx.stroke();
 
-    // Блик на ботинке
+    // Блик
     ctx.fillStyle = COLORS.bootsLight;
-    ctx.beginPath();
-    ctx.roundRect(25 - swing * 0.3, bootY + 1, 3, 2, 1);
-    ctx.fill();
+    ctx.fillRect(25 - swing * 0.3, 54, 3, 2);
 
     // Правый ботинок
     ctx.fillStyle = COLORS.boots;
     ctx.beginPath();
-    ctx.roundRect(33 + swing * 0.3, bootY, bootW, bootH, 2);
+    ctx.roundRect(33 + swing * 0.3, 53, 8, 5, 2);
     ctx.fill();
     ctx.stroke();
 
     ctx.fillStyle = COLORS.bootsLight;
-    ctx.beginPath();
-    ctx.roundRect(34 + swing * 0.3, bootY + 1, 3, 2, 1);
-    ctx.fill();
+    ctx.fillRect(34 + swing * 0.3, 54, 3, 2);
   }
 
-  private drawBody(direction: Direction) {
+  private drawBootsSide(swing: number) {
     const ctx = this.ctx;
-    
-    // Тело (куртка)
-    const bodyX = 22;
-    const bodyY = 28;
-    const bodyW = 20;
-    const bodyH = 18;
 
-    // Основная часть куртки
+    ctx.fillStyle = COLORS.boots;
+    ctx.strokeStyle = COLORS.outline;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(27 - swing * 0.4, 53, 9, 5, 2);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = COLORS.bootsLight;
+    ctx.fillRect(28 - swing * 0.4, 54, 3, 2);
+  }
+
+  // === ТЕЛО ===
+  private drawBodyFront() {
+    const ctx = this.ctx;
+
+    // Куртка
     ctx.fillStyle = COLORS.jacket;
     ctx.strokeStyle = COLORS.outline;
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.roundRect(bodyX, bodyY, bodyW, bodyH, 3);
+    ctx.roundRect(22, 28, 20, 18, 3);
     ctx.fill();
     ctx.stroke();
 
-    // Тёмная сторона куртки (тень)
+    // Тень справа
     ctx.fillStyle = COLORS.jacketDark;
-    ctx.beginPath();
-    ctx.roundRect(bodyX + bodyW - 5, bodyY + 2, 4, bodyH - 4, 2);
-    ctx.fill();
+    ctx.fillRect(37, 30, 4, 14);
 
-    // Светлая сторона (блик)
+    // Блик слева
     ctx.fillStyle = COLORS.jacketLight;
-    ctx.beginPath();
-    ctx.roundRect(bodyX + 2, bodyY + 2, 3, bodyH - 6, 1);
-    ctx.fill();
+    ctx.fillRect(24, 30, 3, 12);
 
     // Молния
     ctx.strokeStyle = '#FCD34D';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.moveTo(32, bodyY + 2);
-    ctx.lineTo(32, bodyY + bodyH - 2);
+    ctx.moveTo(32, 30);
+    ctx.lineTo(32, 44);
     ctx.stroke();
 
-    // Застёжка молнии
+    // Застёжка
     ctx.fillStyle = '#FCD34D';
     ctx.beginPath();
-    ctx.arc(32, bodyY + 4, 1.5, 0, Math.PI * 2);
+    ctx.arc(32, 32, 1.5, 0, Math.PI * 2);
     ctx.fill();
 
     // Карманы
     ctx.strokeStyle = COLORS.jacketDark;
     ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.roundRect(bodyX + 3, bodyY + 10, 6, 5, 1);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.roundRect(bodyX + bodyW - 9, bodyY + 10, 6, 5, 1);
-    ctx.stroke();
+    ctx.strokeRect(25, 38, 6, 5);
+    ctx.strokeRect(33, 38, 6, 5);
   }
 
-  private drawArms(direction: Direction, swing: number, emotion?: Emotion) {
+  private drawBodyBack() {
     const ctx = this.ctx;
-    
-    let leftArmAngle = swing;
-    let rightArmAngle = -swing;
+
+    // Спина куртки
+    ctx.fillStyle = COLORS.jacket;
+    ctx.strokeStyle = COLORS.outline;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.roundRect(22, 28, 20, 18, 3);
+    ctx.fill();
+    ctx.stroke();
+
+    // Тень по центру (шов)
+    ctx.strokeStyle = COLORS.jacketDark;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(32, 30);
+    ctx.lineTo(32, 44);
+    ctx.stroke();
+
+    // Капюшон (сзади)
+    ctx.fillStyle = COLORS.jacketDark;
+    ctx.beginPath();
+    ctx.arc(32, 28, 6, Math.PI, 0);
+    ctx.fill();
+  }
+
+  private drawBodySide() {
+    const ctx = this.ctx;
+
+    // Куртка сбоку
+    ctx.fillStyle = COLORS.jacket;
+    ctx.strokeStyle = COLORS.outline;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.roundRect(24, 28, 16, 18, 3);
+    ctx.fill();
+    ctx.stroke();
+
+    // Тень
+    ctx.fillStyle = COLORS.jacketDark;
+    ctx.fillRect(36, 30, 3, 14);
+
+    // Блик
+    ctx.fillStyle = COLORS.jacketLight;
+    ctx.fillRect(26, 30, 2, 12);
+  }
+
+  // === РУКИ ===
+  private drawArmsFront(swing: number, emotion?: Emotion) {
+    const ctx = this.ctx;
+
     let leftArmY = 30;
     let rightArmY = 30;
 
-    // Эмоции влияют на руки
     if (emotion === 'happy' || emotion === 'surprised') {
       leftArmY = 22;
       rightArmY = 22;
-    } else if (emotion === 'angry') {
-      leftArmAngle = -5;
-      rightArmAngle = 5;
     } else if (emotion === 'sad') {
       leftArmY = 36;
       rightArmY = 36;
     }
 
     // Левая рука
+    ctx.save();
+    ctx.translate(22, leftArmY);
+    ctx.rotate((swing * Math.PI) / 180);
     ctx.fillStyle = COLORS.jacket;
     ctx.strokeStyle = COLORS.outline;
     ctx.lineWidth = 1.5;
-    
-    ctx.save();
-    ctx.translate(22, leftArmY);
-    ctx.rotate((leftArmAngle * Math.PI) / 180);
     ctx.beginPath();
     ctx.roundRect(-3, 0, 6, 14, 3);
     ctx.fill();
     ctx.stroke();
-    
-    // Кисть руки
+    // Кисть
     ctx.fillStyle = COLORS.skin;
     ctx.beginPath();
     ctx.arc(0, 14, 3, 0, Math.PI * 2);
@@ -318,19 +396,17 @@ class CharacterDrawer {
     ctx.restore();
 
     // Правая рука
+    ctx.save();
+    ctx.translate(42, rightArmY);
+    ctx.rotate((-swing * Math.PI) / 180);
     ctx.fillStyle = COLORS.jacket;
     ctx.strokeStyle = COLORS.outline;
     ctx.lineWidth = 1.5;
-    
-    ctx.save();
-    ctx.translate(42, rightArmY);
-    ctx.rotate((rightArmAngle * Math.PI) / 180);
     ctx.beginPath();
     ctx.roundRect(-3, 0, 6, 14, 3);
     ctx.fill();
     ctx.stroke();
-    
-    // Кисть руки
+    // Кисть
     ctx.fillStyle = COLORS.skin;
     ctx.beginPath();
     ctx.arc(0, 14, 3, 0, Math.PI * 2);
@@ -341,18 +417,47 @@ class CharacterDrawer {
     ctx.restore();
   }
 
-  private drawHead(direction: Direction, emotion?: Emotion, animType?: AnimationType, animFrame?: number) {
+  private drawArmsSide(swing: number, emotion?: Emotion) {
     const ctx = this.ctx;
-    const headX = 20;
-    const headY = 6;
-    const headW = 24;
-    const headH = 24;
+
+    let armY = 30;
+    if (emotion === 'happy' || emotion === 'surprised') {
+      armY = 22;
+    } else if (emotion === 'sad') {
+      armY = 36;
+    }
+
+    // Одна рука видна
+    ctx.save();
+    ctx.translate(32, armY);
+    ctx.rotate((swing * Math.PI) / 180);
+    ctx.fillStyle = COLORS.jacket;
+    ctx.strokeStyle = COLORS.outline;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.roundRect(-3, 0, 6, 14, 3);
+    ctx.fill();
+    ctx.stroke();
+    // Кисть
+    ctx.fillStyle = COLORS.skin;
+    ctx.beginPath();
+    ctx.arc(0, 14, 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = COLORS.outline;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // === ГОЛОВА ===
+  private drawHeadFront(emotion?: Emotion, animFrame?: number) {
+    const ctx = this.ctx;
 
     // Шея
     ctx.fillStyle = COLORS.skin;
     ctx.fillRect(29, 26, 6, 4);
 
-    // Голова (форма)
+    // Голова
     ctx.fillStyle = COLORS.skin;
     ctx.strokeStyle = COLORS.outline;
     ctx.lineWidth = 1.5;
@@ -361,7 +466,7 @@ class CharacterDrawer {
     ctx.fill();
     ctx.stroke();
 
-    // Румянец (для эмоции love)
+    // Румянец для love
     if (emotion === 'love') {
       ctx.fillStyle = 'rgba(248, 113, 113, 0.4)';
       ctx.beginPath();
@@ -373,101 +478,188 @@ class CharacterDrawer {
     }
 
     // Волосы
-    this.drawHair(direction);
+    this.drawHairFront();
 
-    // Глаза и лицо
-    this.drawFace(direction, emotion, animFrame);
+    // Лицо
+    this.drawFaceFront(emotion);
 
     // Эффекты эмоций
-    if (emotion === 'love') {
-      this.drawHearts();
-    } else if (emotion === 'sad') {
-      this.drawTears();
-    } else if (emotion === 'surprised') {
-      this.drawSurpriseMarks();
-    }
+    if (emotion === 'love') this.drawHearts();
+    else if (emotion === 'sad') this.drawTears();
+    else if (emotion === 'surprised') this.drawSurpriseMarks();
   }
 
-  private drawHair(direction: Direction) {
+  private drawHeadBack() {
     const ctx = this.ctx;
 
-    // Основная масса волос (сзади)
+    // Шея
+    ctx.fillStyle = COLORS.skin;
+    ctx.fillRect(29, 26, 6, 4);
+
+    // Голова (сзади - волосы закрывают)
+    ctx.fillStyle = COLORS.hairDark;
+    ctx.strokeStyle = COLORS.outline;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.ellipse(32, 16, 14, 14, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Основная масса волос
+    ctx.fillStyle = COLORS.hair;
+    ctx.beginPath();
+    ctx.ellipse(32, 14, 13, 12, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Пряди сзади
+    ctx.fillStyle = COLORS.hairDark;
+    ctx.beginPath();
+    ctx.moveTo(24, 20);
+    ctx.quadraticCurveTo(22, 28, 26, 30);
+    ctx.quadraticCurveTo(27, 25, 28, 20);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(36, 20);
+    ctx.quadraticCurveTo(38, 28, 40, 30);
+    ctx.quadraticCurveTo(39, 25, 38, 20);
+    ctx.fill();
+
+    // Блик
+    ctx.fillStyle = COLORS.hairLight;
+    ctx.beginPath();
+    ctx.ellipse(28, 10, 5, 3, -0.3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  private drawHeadSide(emotion?: Emotion) {
+    const ctx = this.ctx;
+
+    // Шея
+    ctx.fillStyle = COLORS.skin;
+    ctx.fillRect(29, 26, 6, 4);
+
+    // Голова сбоку
+    ctx.fillStyle = COLORS.skin;
+    ctx.strokeStyle = COLORS.outline;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.ellipse(32, 18, 11, 14, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Волосы сбоку
+    ctx.fillStyle = COLORS.hairDark;
+    ctx.beginPath();
+    ctx.ellipse(32, 14, 12, 12, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = COLORS.hair;
+    ctx.beginPath();
+    ctx.ellipse(32, 12, 11, 10, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Челка сбоку
+    ctx.beginPath();
+    ctx.moveTo(22, 14);
+    ctx.quadraticCurveTo(24, 20, 28, 18);
+    ctx.quadraticCurveTo(30, 14, 32, 16);
+    ctx.quadraticCurveTo(34, 12, 36, 14);
+    ctx.quadraticCurveTo(38, 10, 40, 12);
+    ctx.quadraticCurveTo(38, 6, 32, 5);
+    ctx.quadraticCurveTo(24, 6, 22, 14);
+    ctx.fill();
+
+    // Блик
+    ctx.fillStyle = COLORS.hairLight;
+    ctx.beginPath();
+    ctx.ellipse(28, 8, 4, 3, -0.3, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Глаз (один виден)
+    ctx.fillStyle = COLORS.eyeWhite;
+    ctx.beginPath();
+    ctx.ellipse(36, 18, 3, 3.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = COLORS.outline;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.fillStyle = COLORS.eyes;
+    ctx.beginPath();
+    ctx.ellipse(36, 18.5, 2, 2.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.beginPath();
+    ctx.arc(35, 17, 1, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Рот сбоку
+    ctx.strokeStyle = COLORS.outline;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(38, 24);
+    ctx.lineTo(40, 24);
+    ctx.stroke();
+
+    // Нос сбоку
+    ctx.fillStyle = COLORS.skinDark;
+    ctx.beginPath();
+    ctx.arc(40, 21, 1, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  private drawHairFront() {
+    const ctx = this.ctx;
+
+    // Основная масса волос
     ctx.fillStyle = COLORS.hairDark;
     ctx.beginPath();
     ctx.ellipse(32, 14, 14, 13, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // Верхняя часть волос
+    // Верхняя часть
     ctx.fillStyle = COLORS.hair;
     ctx.beginPath();
     ctx.ellipse(32, 12, 13, 11, 0, -Math.PI, 0);
     ctx.fill();
 
-    // Блик на волосах
+    // Блик
     ctx.fillStyle = COLORS.hairLight;
     ctx.beginPath();
     ctx.ellipse(28, 8, 5, 3, -0.3, 0, Math.PI * 2);
     ctx.fill();
 
-    // Челка (зависит от направления)
+    // Челка
     ctx.fillStyle = COLORS.hair;
     ctx.strokeStyle = COLORS.hairDark;
     ctx.lineWidth = 0.5;
-
-    if (direction === 'down' || direction === 'left' || direction === 'right') {
-      // Челка спереди
-      ctx.beginPath();
-      ctx.moveTo(22, 14);
-      ctx.quadraticCurveTo(24, 18, 26, 16);
-      ctx.quadraticCurveTo(28, 14, 30, 17);
-      ctx.quadraticCurveTo(32, 14, 34, 17);
-      ctx.quadraticCurveTo(36, 14, 38, 16);
-      ctx.quadraticCurveTo(40, 18, 42, 14);
-      ctx.quadraticCurveTo(40, 6, 32, 5);
-      ctx.quadraticCurveTo(24, 6, 22, 14);
-      ctx.fill();
-      ctx.stroke();
-    }
-
-    if (direction === 'up') {
-      // Вид сзади - волосы закрывают лицо
-      ctx.fillStyle = COLORS.hair;
-      ctx.beginPath();
-      ctx.ellipse(32, 15, 12, 12, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Пряди волос сзади
-      ctx.fillStyle = COLORS.hairDark;
-      ctx.beginPath();
-      ctx.moveTo(24, 20);
-      ctx.quadraticCurveTo(22, 26, 25, 28);
-      ctx.quadraticCurveTo(26, 24, 28, 20);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.moveTo(36, 20);
-      ctx.quadraticCurveTo(38, 26, 39, 28);
-      ctx.quadraticCurveTo(40, 24, 38, 20);
-      ctx.fill();
-    }
+    ctx.beginPath();
+    ctx.moveTo(22, 14);
+    ctx.quadraticCurveTo(24, 18, 26, 16);
+    ctx.quadraticCurveTo(28, 14, 30, 17);
+    ctx.quadraticCurveTo(32, 14, 34, 17);
+    ctx.quadraticCurveTo(36, 14, 38, 16);
+    ctx.quadraticCurveTo(40, 18, 42, 14);
+    ctx.quadraticCurveTo(40, 6, 32, 5);
+    ctx.quadraticCurveTo(24, 6, 22, 14);
+    ctx.fill();
+    ctx.stroke();
 
     // Боковые пряди
-    if (direction !== 'up') {
-      ctx.fillStyle = COLORS.hair;
-      // Левая прядь
-      ctx.beginPath();
-      ctx.moveTo(19, 14);
-      ctx.quadraticCurveTo(17, 20, 19, 25);
-      ctx.quadraticCurveTo(20, 22, 21, 18);
-      ctx.fill();
-      // Правая прядь
-      ctx.beginPath();
-      ctx.moveTo(45, 14);
-      ctx.quadraticCurveTo(47, 20, 45, 25);
-      ctx.quadraticCurveTo(44, 22, 43, 18);
-      ctx.fill();
-    }
+    ctx.fillStyle = COLORS.hair;
+    ctx.beginPath();
+    ctx.moveTo(19, 14);
+    ctx.quadraticCurveTo(17, 22, 20, 26);
+    ctx.quadraticCurveTo(21, 22, 22, 18);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(45, 14);
+    ctx.quadraticCurveTo(47, 22, 44, 26);
+    ctx.quadraticCurveTo(43, 22, 42, 18);
+    ctx.fill();
 
-    // Контур волос
+    // Контур
     ctx.strokeStyle = COLORS.outline;
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -475,16 +667,12 @@ class CharacterDrawer {
     ctx.stroke();
   }
 
-  private drawFace(direction: Direction, emotion?: Emotion, animFrame?: number) {
+  private drawFaceFront(emotion?: Emotion) {
     const ctx = this.ctx;
-
-    if (direction === 'up') return; // Сзади не видно лицо
-
     const eyeY = 18;
     const leftEyeX = 27;
     const rightEyeX = 37;
 
-    // Определяем состояние глаз
     let leftEyeClosed = false;
     let rightEyeClosed = false;
     let eyeSize = 3;
@@ -501,7 +689,6 @@ class CharacterDrawer {
       eyeSize = 2.5;
     } else if (emotion === 'angry') {
       mouthType = 'angry';
-      eyeSize = 3;
     } else if (emotion === 'surprised') {
       mouthType = 'open';
       eyeSize = 4;
@@ -510,9 +697,8 @@ class CharacterDrawer {
       eyeSize = 3.5;
     }
 
-    // Рисуем глаза
+    // Левый глаз
     if (!leftEyeClosed) {
-      // Белок глаза
       ctx.fillStyle = COLORS.eyeWhite;
       ctx.beginPath();
       ctx.ellipse(leftEyeX, eyeY, eyeSize, eyeSize + 0.5, 0, 0, Math.PI * 2);
@@ -521,19 +707,16 @@ class CharacterDrawer {
       ctx.lineWidth = 1;
       ctx.stroke();
 
-      // Зрачок
       ctx.fillStyle = COLORS.eyes;
       ctx.beginPath();
       ctx.ellipse(leftEyeX, eyeY + 0.5, eyeSize * 0.6, eyeSize * 0.7, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      // Блик в глазу
       ctx.fillStyle = '#FFFFFF';
       ctx.beginPath();
       ctx.arc(leftEyeX - 1, eyeY - 1, 1, 0, Math.PI * 2);
       ctx.fill();
     } else {
-      // Закрытый глаз (линия)
       ctx.strokeStyle = COLORS.outline;
       ctx.lineWidth = 1.5;
       ctx.beginPath();
@@ -542,6 +725,7 @@ class CharacterDrawer {
       ctx.stroke();
     }
 
+    // Правый глаз
     if (!rightEyeClosed) {
       ctx.fillStyle = COLORS.eyeWhite;
       ctx.beginPath();
@@ -572,9 +756,8 @@ class CharacterDrawer {
     // Брови
     ctx.strokeStyle = COLORS.hairDark;
     ctx.lineWidth = 1.5;
-    
+
     if (emotion === 'angry') {
-      // Злые брови
       ctx.beginPath();
       ctx.moveTo(leftEyeX - 3, eyeY - 5);
       ctx.lineTo(leftEyeX + 2, eyeY - 7);
@@ -584,7 +767,6 @@ class CharacterDrawer {
       ctx.lineTo(rightEyeX - 2, eyeY - 7);
       ctx.stroke();
     } else if (emotion === 'sad') {
-      // Грустные брови
       ctx.beginPath();
       ctx.moveTo(leftEyeX - 3, eyeY - 7);
       ctx.lineTo(leftEyeX + 2, eyeY - 5);
@@ -594,7 +776,6 @@ class CharacterDrawer {
       ctx.lineTo(rightEyeX - 2, eyeY - 5);
       ctx.stroke();
     } else if (emotion === 'surprised') {
-      // Удивлённые брови (подняты)
       ctx.beginPath();
       ctx.moveTo(leftEyeX - 3, eyeY - 7);
       ctx.lineTo(leftEyeX + 3, eyeY - 7);
@@ -604,7 +785,6 @@ class CharacterDrawer {
       ctx.lineTo(rightEyeX + 3, eyeY - 7);
       ctx.stroke();
     } else {
-      // Обычные брови
       ctx.beginPath();
       ctx.moveTo(leftEyeX - 3, eyeY - 5);
       ctx.lineTo(leftEyeX + 3, eyeY - 6);
@@ -663,20 +843,17 @@ class CharacterDrawer {
         ctx.stroke();
     }
 
-    // Нос (маленький)
-    if (direction === 'down') {
-      ctx.fillStyle = COLORS.skinDark;
-      ctx.beginPath();
-      ctx.arc(32, 21, 1, 0, Math.PI * 2);
-      ctx.fill();
-    }
+    // Нос
+    ctx.fillStyle = COLORS.skinDark;
+    ctx.beginPath();
+    ctx.arc(32, 21, 1, 0, Math.PI * 2);
+    ctx.fill();
   }
 
   private drawHearts() {
     const ctx = this.ctx;
     ctx.fillStyle = COLORS.heart;
-    
-    // Рисуем сердечки вокруг головы
+
     const hearts = [
       { x: 14, y: 6, s: 0.8 },
       { x: 50, y: 8, s: 0.6 },
@@ -700,14 +877,13 @@ class CharacterDrawer {
   private drawTears() {
     const ctx = this.ctx;
     ctx.fillStyle = COLORS.tear;
-    
-    // Слезинки
+
     ctx.beginPath();
     ctx.moveTo(25, 20);
     ctx.quadraticCurveTo(24, 24, 25, 27);
     ctx.quadraticCurveTo(26, 24, 25, 20);
     ctx.fill();
-    
+
     ctx.beginPath();
     ctx.moveTo(39, 21);
     ctx.quadraticCurveTo(38, 25, 39, 28);
@@ -719,8 +895,7 @@ class CharacterDrawer {
     const ctx = this.ctx;
     ctx.strokeStyle = COLORS.outline;
     ctx.lineWidth = 1.5;
-    
-    // Восклицательные знаки / линии удивления
+
     const marks = [
       { x: 12, y: 4 },
       { x: 52, y: 4 },
@@ -739,89 +914,54 @@ class CharacterDrawer {
 
 // Генерация полного спрайт-листа
 export function generateSpriteSheet(): SpriteSheet {
-  // Рассчитываем размер спрайт-листа
-  // Idle: 4 кадра * 4 направления = 16
-  // Walk: 6 кадров * 4 направления = 24
-  // Run: 6 кадров * 4 направления = 24
-  // Jump: 4 кадра * 1 (только вниз) = 4
-  // Emotions: 6 эмоций * 3 кадра * 1 (только вниз) = 18
-  // Итого: 86 кадров
-  
   const directions: Direction[] = ['down', 'up', 'left', 'right'];
   const emotions: Emotion[] = ['happy', 'sad', 'angry', 'surprised', 'love', 'wink'];
-  
-  // Создаём сетку спрайтов
-  // Строки: idle(4), walk(6), run(6), jump(4), emotions(6*3=18)
-  // Столбцы: 4 направления (для основных) или 1 (для эмоций/прыжка)
-  
-  const cols = 6; // Максимум кадров в строке
-  const totalRows = 4 + 6 + 6 + 4 + 6 * 3; // = 38 строк (но мы организуем по-другому)
-  
-  // Более компактная организация:
-  // Ряд 0-3: Idle down (4 кадра), Ряд 4-7: Idle up, Ряд 8-11: Idle left, Ряд 12-15: Idle right
-  // Ряд 16-21: Walk down, Ряд 22-27: Walk up, Ряд 28-33: Walk left, Ряд 34-39: Walk right
-  // Ряд 40-45: Run down, Ряд 46-51: Run up, Ряд 52-57: Run left, Ряд 58-63: Run right
-  // Ряд 64-67: Jump (4 кадра)
-  // Ряд 68-70: Happy, Ряд 71-73: Sad, Ряд 74-76: Angry, Ряд 77-79: Surprised, Ряд 80-82: Love, Ряд 83-85: Wink
-  
+
   const rows = 86;
   const canvas = document.createElement('canvas');
-  canvas.width = cols * FRAME_SIZE;
+  canvas.width = 64;
   canvas.height = rows * FRAME_SIZE;
   const ctx = canvas.getContext('2d')!;
-  
-  // Прозрачный фон
+
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  
-  const drawer = new CharacterDrawer(ctx, 0, 0);
+
+  const drawer = new CharacterDrawer(ctx);
   let currentRow = 0;
 
-  // Idle анимация (4 кадра на направление)
+  // Idle (4 кадра * 4 направления = 16)
   for (const dir of directions) {
     for (let f = 0; f < 4; f++) {
-      const tempDrawer = new CharacterDrawer(ctx, 0, currentRow * FRAME_SIZE);
-      tempDrawer.drawFrame(dir, f, 'idle');
+      drawer.drawFrame(0, currentRow * FRAME_SIZE, dir, f, 'idle');
       currentRow++;
     }
   }
 
-  // Walk анимация (6 кадров на направление)
+  // Walk (6 кадров * 4 направления = 24)
   for (const dir of directions) {
     for (let f = 0; f < 6; f++) {
-      ctx.save();
-      const tempDrawer = new CharacterDrawer(ctx, 0, currentRow * FRAME_SIZE);
-      tempDrawer.drawFrame(dir, f, 'walk');
-      ctx.restore();
+      drawer.drawFrame(0, currentRow * FRAME_SIZE, dir, f, 'walk');
       currentRow++;
     }
   }
 
-  // Run анимация (6 кадров на направление)
+  // Run (6 кадров * 4 направления = 24)
   for (const dir of directions) {
     for (let f = 0; f < 6; f++) {
-      ctx.save();
-      const tempDrawer = new CharacterDrawer(ctx, 0, currentRow * FRAME_SIZE);
-      tempDrawer.drawFrame(dir, f, 'run');
-      ctx.restore();
+      drawer.drawFrame(0, currentRow * FRAME_SIZE, dir, f, 'run');
       currentRow++;
     }
   }
 
-  // Jump анимация (4 кадра, направление вниз)
-  // Смещение обрабатывается динамически в GameEngine через jumpHeight
+  // Jump (4 кадра)
   for (let f = 0; f < 4; f++) {
-    const tempDrawer = new CharacterDrawer(ctx, 0, currentRow * FRAME_SIZE);
-    tempDrawer.drawFrame('down', f, 'jump');
+    drawer.drawFrame(0, currentRow * FRAME_SIZE, 'down', f, 'jump');
     currentRow++;
   }
 
-  // Эмоции (6 эмоций * 3 кадра)
+  // Emotions (6 эмоций * 3 кадра = 18)
   for (const emotion of emotions) {
     for (let f = 0; f < 3; f++) {
-      ctx.save();
-      const tempDrawer = new CharacterDrawer(ctx, 0, currentRow * FRAME_SIZE);
-      tempDrawer.drawFrame('down', f, 'emotion', emotion);
-      ctx.restore();
+      drawer.drawFrame(0, currentRow * FRAME_SIZE, 'down', f, 'emotion', emotion);
       currentRow++;
     }
   }
@@ -829,31 +969,10 @@ export function generateSpriteSheet(): SpriteSheet {
   return { canvas, ctx };
 }
 
-// Индексы кадров в спрайт-листе
 export const FRAME_INDICES = {
-  idle: {
-    down: 0, up: 4, left: 8, right: 12,
-    frameCounts: 4,
-  },
-  walk: {
-    down: 16, up: 22, left: 28, right: 34,
-    frameCounts: 6,
-  },
-  run: {
-    down: 40, up: 46, left: 52, right: 58,
-    frameCounts: 6,
-  },
-  jump: {
-    start: 64,
-    frameCounts: 4,
-  },
-  emotions: {
-    happy: 68,
-    sad: 71,
-    angry: 74,
-    surprised: 77,
-    love: 80,
-    wink: 83,
-    frameCounts: 3,
-  },
+  idle: { down: 0, up: 4, left: 8, right: 12, frameCounts: 4 },
+  walk: { down: 16, up: 22, left: 28, right: 34, frameCounts: 6 },
+  run: { down: 40, up: 46, left: 52, right: 58, frameCounts: 6 },
+  jump: { start: 64, frameCounts: 4 },
+  emotions: { happy: 68, sad: 71, angry: 74, surprised: 77, love: 80, wink: 83, frameCounts: 3 },
 };

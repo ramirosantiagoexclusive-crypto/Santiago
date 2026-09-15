@@ -486,105 +486,105 @@ export function generateTileTextures(): Map<TileType, HTMLCanvasElement> {
 function generateTreeTexture(type: string): HTMLCanvasElement {
   const canvas = document.createElement('canvas');
   canvas.width = TILE_SIZE;
-  canvas.height = TILE_SIZE;
+  canvas.height = TILE_SIZE * 1.5; // Увеличенная высота для деревьев
   const ctx = canvas.getContext('2d')!;
   
-  // Прозрачный фон (трава под деревом)
-  ctx.fillStyle = '#4ADE80';
-  ctx.fillRect(0, 0, TILE_SIZE, TILE_SIZE);
+  // Прозрачный фон
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // Тень
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
+  // Тень у основания
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
   ctx.beginPath();
-  ctx.ellipse(32, 56, 14, 5, 0, 0, Math.PI * 2);
+  ctx.ellipse(32, canvas.height - 8, 14, 5, 0, 0, Math.PI * 2);
   ctx.fill();
 
   if (type === 'deciduous') {
     // Ствол
     ctx.fillStyle = '#78350F';
-    ctx.fillRect(28, 36, 8, 20);
+    ctx.fillRect(28, canvas.height - 30, 8, 22);
     ctx.strokeStyle = '#451A03';
     ctx.lineWidth = 1;
-    ctx.strokeRect(28, 36, 8, 20);
+    ctx.strokeRect(28, canvas.height - 30, 8, 22);
     
-    // Крона
+    // Крона (выше)
     ctx.fillStyle = '#15803D';
     ctx.beginPath();
-    ctx.arc(32, 24, 18, 0, Math.PI * 2);
+    ctx.arc(32, canvas.height - 50, 20, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = '#22C55E';
     ctx.beginPath();
-    ctx.arc(28, 20, 12, 0, Math.PI * 2);
+    ctx.arc(26, canvas.height - 56, 14, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = '#16A34A';
     ctx.beginPath();
-    ctx.arc(38, 22, 10, 0, Math.PI * 2);
+    ctx.arc(38, canvas.height - 52, 12, 0, Math.PI * 2);
     ctx.fill();
     // Блик
     ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
     ctx.beginPath();
-    ctx.arc(26, 16, 6, 0, Math.PI * 2);
+    ctx.arc(24, canvas.height - 62, 7, 0, Math.PI * 2);
     ctx.fill();
   } else if (type === 'conifer') {
     // Ствол
     ctx.fillStyle = '#78350F';
-    ctx.fillRect(29, 40, 6, 16);
+    ctx.fillRect(29, canvas.height - 28, 6, 20);
     
-    // Ёлка (треугольники)
+    // Ёлка (треугольники, выше)
     ctx.fillStyle = '#166534';
     ctx.beginPath();
-    ctx.moveTo(32, 6);
-    ctx.lineTo(18, 28);
-    ctx.lineTo(46, 28);
+    ctx.moveTo(32, canvas.height - 90);
+    ctx.lineTo(18, canvas.height - 60);
+    ctx.lineTo(46, canvas.height - 60);
     ctx.closePath();
     ctx.fill();
     
     ctx.fillStyle = '#15803D';
     ctx.beginPath();
-    ctx.moveTo(32, 14);
-    ctx.lineTo(14, 38);
-    ctx.lineTo(50, 38);
+    ctx.moveTo(32, canvas.height - 75);
+    ctx.lineTo(14, canvas.height - 45);
+    ctx.lineTo(50, canvas.height - 45);
     ctx.closePath();
     ctx.fill();
     
     ctx.fillStyle = '#166534';
     ctx.beginPath();
-    ctx.moveTo(32, 22);
-    ctx.lineTo(12, 46);
-    ctx.lineTo(52, 46);
+    ctx.moveTo(32, canvas.height - 60);
+    ctx.lineTo(12, canvas.height - 30);
+    ctx.lineTo(52, canvas.height - 30);
     ctx.closePath();
     ctx.fill();
     
     // Блик
     ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
     ctx.beginPath();
-    ctx.moveTo(32, 8);
-    ctx.lineTo(26, 20);
-    ctx.lineTo(32, 18);
+    ctx.moveTo(32, canvas.height - 88);
+    ctx.lineTo(26, canvas.height - 70);
+    ctx.lineTo(32, canvas.height - 72);
     ctx.closePath();
     ctx.fill();
   } else if (type === 'fruit') {
     // Ствол
     ctx.fillStyle = '#78350F';
-    ctx.fillRect(28, 36, 8, 20);
+    ctx.fillRect(28, canvas.height - 30, 8, 22);
     ctx.strokeStyle = '#451A03';
     ctx.lineWidth = 1;
-    ctx.strokeRect(28, 36, 8, 20);
+    ctx.strokeRect(28, canvas.height - 30, 8, 22);
     
-    // Крона
+    // Крона (выше)
     ctx.fillStyle = '#22C55E';
     ctx.beginPath();
-    ctx.arc(32, 24, 18, 0, Math.PI * 2);
+    ctx.arc(32, canvas.height - 50, 20, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = '#4ADE80';
     ctx.beginPath();
-    ctx.arc(26, 20, 10, 0, Math.PI * 2);
+    ctx.arc(26, canvas.height - 56, 12, 0, Math.PI * 2);
     ctx.fill();
     
     // Фрукты (яблоки)
     const fruitPositions = [
-      { x: 24, y: 18 }, { x: 38, y: 20 }, { x: 30, y: 28 },
-      { x: 20, y: 26 }, { x: 40, y: 28 },
+      { x: 22, y: canvas.height - 48 }, { x: 38, y: canvas.height - 46 },
+      { x: 30, y: canvas.height - 40 }, { x: 18, y: canvas.height - 42 },
+      { x: 42, y: canvas.height - 44 },
     ];
     fruitPositions.forEach(fp => {
       ctx.fillStyle = '#EF4444';
