@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { GameEngine, GameState } from './game/GameEngine';
-import { MultiplayerManager, PlayerData } from './game/MultiplayerManager';
+import { ServerMultiplayerManager, PlayerData, ChatMessage } from './game/ServerMultiplayer';
 import type { Emotion, Direction, AnimationType } from './game/SpriteGenerator';
 import { VirtualJoystick } from './components/VirtualJoystick';
 import { MobileControls } from './components/MobileControls';
 import { MultiplayerMenu } from './components/MultiplayerMenu';
+import { ChatPanel } from './components/ChatPanel';
 
 const EMOTION_ICONS: { emotion: Emotion; icon: string; label: string; key: string }[] = [
   { emotion: 'happy', icon: '😊', label: 'Радость', key: '1' },
@@ -18,7 +19,7 @@ const EMOTION_ICONS: { emotion: Emotion; icon: string; label: string; key: strin
 function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<GameEngine | null>(null);
-  const multiplayerRef = useRef<MultiplayerManager | null>(null);
+  const mpRef = useRef<ServerMultiplayerManager | null>(null);
   
   const [gameState, setGameState] = useState<GameState>({
     x: 50, y: 50, animation: 'idle', direction: 'down',
@@ -35,6 +36,7 @@ function App() {
   const [mpConnected, setMpConnected] = useState(false);
   const [mpPlayers, setMpPlayers] = useState<PlayerData[]>([]);
   const [playerName, setPlayerName] = useState('');
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
 
   // Определяем мобильное устройство
   useEffect(() => {
@@ -68,9 +70,9 @@ function App() {
       setGameState(state);
       if (!state.emotion) setActiveEmotion(null);
 
-      // Отправляем обновление в мультиплеер
-      if (multiplayerRef.current?.isInRoom()) {
-        multiplayerRef.current.updateMyPlayer({
+      // Отправляем обновление на сервер
+      if (mpRef.current?.isInRoom()) {
+        mpRef.current.updateMyPlayer({
           x: state.x * 64,
           y: state.y * 64,
           direction: state.direction as Direction,
@@ -84,9 +86,9 @@ function App() {
       setIsLoading(false);
     });
 
-    // Инициализация мультиплеера
-    const mp = new MultiplayerManager();
-    multiplayerRef.current = mp;
+    // Инициализация серверного мультиплеера
+    const mp = new ServerMultiplayerManager();
+    mpRef.current = mp;
     setPlayerName(mp.getMyName());
 
     mp.setOnPlayersUpdate((players) => {
@@ -104,14 +106,22 @@ function App() {
       })));
     });
 
-    mp.setOnConnectionStatus((status) => {
+    mp.setOnStatusChange((status) => {
       setMpStatus(status);
+    });
+
+    mp.setOnConnectionChange((connected) => {
+      setMpConnected(connected);
+    });
+
+    mp.setOnChatMessage((msg) => {
+      setChatMessages(prev => [...prev.slice(-50), msg]);
     });
 
     return () => {
       window.removeEventListener('resize', resize);
       engine.destroy();
-      mp.disconnect();
+      mp.destroy();
     };
   }, []);
 
@@ -149,42 +159,49 @@ function App() {
   // Мультиплеер
   const handleCreateRoom = useCallback(async () => {
     try {
-      const code = await multiplayerRef.current!.createRoom();
+      const code = await mpRef.current!.createRoom();
       setMpRoomCode(code);
       setMpConnected(true);
-      setMpStatus('Комната создана! Поделитесь кодом с друзьями.');
+      setMpStatus(`Комната создана: ${code}`);
     } catch (e) {
       setMpStatus('Ошибка создания комнаты');
+      console.error(e);
     }
   }, []);
 
   const handleJoinRoom = useCallback(async (code: string) => {
     try {
-      setMpStatus('Подключение...');
-      const success = await multiplayerRef.current!.joinRoom(code);
+      setMpStatus('Подключение к серверу...');
+      const success = await mpRef.current!.joinRoom(code);
       if (success) {
-        setMpRoomCode(code);
+        setMpRoomCode(code.toUpperCase());
         setMpConnected(true);
-        setMpStatus('Подключено!');
+        setMpStatus(`Подключено к комнате: ${code.toUpperCase()}`);
       } else {
         setMpStatus('Не удалось подключиться');
       }
     } catch (e) {
       setMpStatus('Ошибка подключения');
+      console.error(e);
     }
   }, []);
 
   const handleDisconnect = useCallback(() => {
-    multiplayerRef.current?.disconnect();
+    mpRef.current?.disconnect();
     setMpConnected(false);
     setMpRoomCode('');
     setMpPlayers([]);
     setMpStatus('');
+    setChatMessages([]);
   }, []);
 
   const handleNameChange = useCallback((name: string) => {
     setPlayerName(name);
-    multiplayerRef.current?.setMyName(name);
+    mpRef.current?.setMyName(name);
+  }, []);
+
+  const handleSendChat = useCallback((text: string) => {
+    mpRef.current?.sendChat(text);
   }, []);
 
   // Переводы
@@ -228,16 +245,25 @@ function App() {
       />
 
       {/* Список игроков онлайн */}
-      {mpConnected && mpPlayers.length > 1 && (
+      {mpConnected && mpPlayers.length > 0 && (
         <div className="fixed top-16 right-4 z-20 bg-gray-800/80 backdrop-blur-sm rounded-lg p-2 border border-gray-600/50 max-w-[180px]">
-          <p className="text-xs text-gray-400 mb-1">Игроки ({mpPlayers.length}):</p>
+          <p className="text-xs text-gray-400 mb-1">👥 Игроки ({mpPlayers.length}):</p>
           {mpPlayers.map(p => (
             <div key={p.id} className="flex items-center gap-1 text-xs text-gray-200 py-0.5">
-              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: p.color }}></span>
-              <span className="truncate">{p.name}</span>
+              <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: p.color }}></span>
+              <span className="truncate">{p.name}{p.id === mpRef.current?.getMyId() ? ' (вы)' : ''}</span>
             </div>
           ))}
         </div>
+      )}
+
+      {/* Чат */}
+      {mpConnected && (
+        <ChatPanel
+          messages={chatMessages}
+          onSend={handleSendChat}
+          myId={mpRef.current?.getMyId() || ''}
+        />
       )}
 
       {/* Панель эмоций */}
@@ -270,7 +296,6 @@ function App() {
       {/* Мобильные контролы */}
       {isMobile && (
         <>
-          {/* Виртуальный джойстик */}
           <div className="fixed bottom-8 left-8 z-20">
             <VirtualJoystick
               onMove={handleJoystickMove}
@@ -278,8 +303,6 @@ function App() {
               size={130}
             />
           </div>
-
-          {/* Кнопки действий */}
           <MobileControls
             onJump={handleJump}
             onRun={handleRun}

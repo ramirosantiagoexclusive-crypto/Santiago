@@ -133,12 +133,13 @@ export const MultiplayerMenu: React.FC<MultiplayerMenuProps> = ({
             {/* Информация */}
             <div className="mt-4 p-3 bg-blue-900/30 rounded-lg border border-blue-700/50">
               <p className="text-xs text-blue-300">
-                💡 <strong>Как играть:</strong>
+                💡 <strong>Серверный мультиплеер:</strong>
               </p>
               <ul className="text-xs text-gray-300 mt-1 space-y-1">
-                <li>• Создайте комнату и поделитесь кодом с друзьями</li>
-                <li>• Друзья вставляют код и подключаются</li>
-                <li>• Игра работает через P2P соединение</li>
+                <li>• Все данные идут через центральный сервер</li>
+                <li>• Создайте комнату и поделитесь кодом</li>
+                <li>• Работает на любом устройстве (ПК/Android/iOS)</li>
+                <li>• Чат с другими игроками в реальном времени</li>
               </ul>
             </div>
           </div>
