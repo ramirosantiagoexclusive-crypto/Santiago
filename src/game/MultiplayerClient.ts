@@ -9,7 +9,7 @@ import { io, Socket } from 'socket.io-client';
 // URL сервера (замените на ваш после деплоя на Railway)
 // Для локального теста: http://localhost:3001
 // Для продакшена: https://your-app.up.railway.app
-const SERVER_URL = (window as any).__VITE_WS_URL__ || 'https://rpg25d-server.up.railway.app';
+const SERVER_URL = 'http://localhost:3001';
 
 // ============================================
 // Типы данных
