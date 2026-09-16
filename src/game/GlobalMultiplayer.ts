@@ -31,11 +31,13 @@ export interface ChatMessage {
   timestamp: number;
 }
 
-// Публичные MQTT broker'ы
+// Публичные MQTT broker'ы (множество вариантов для надёжности)
 const BROKERS = [
   'wss://broker.hivemq.com:8884/mqtt',
   'wss://mqtt.eclipseprojects.io:443',
   'wss://test.mosquitto.org:8081',
+  'wss://broker.emqx.io:8084/mqtt',
+  'wss://public.mqtthq.com:8084/mqtt',
 ];
 
 // Единый глобальный топик — все игроки в одном мире
@@ -83,6 +85,8 @@ export class GlobalMultiplayer {
   connect(): void {
     if (this.connected || this.connecting) return;
     this.connecting = true;
+    console.log('[Multiplayer] Инициализация подключения к серверу...');
+    console.log('[Multiplayer] Доступные брокеры:', BROKERS);
     this.tryConnectBackground();
   }
 
@@ -96,15 +100,17 @@ export class GlobalMultiplayer {
 
   private async doConnect(attempt: number = 0): Promise<void> {
     // Ограничиваем количество попыток
-    if (attempt >= BROKERS.length * 2) {
+    if (attempt >= BROKERS.length * 3) {
       this.notifyStatus('Сервер недоступен. Играйте в одиночном режиме.');
       this.connecting = false;
       if (this.onConnectionChange) this.onConnectionChange(false);
+      console.log('[Multiplayer] Все попытки подключения исчерпаны');
       return;
     }
 
     const brokerUrl = BROKERS[this.brokerIndex];
-    this.notifyStatus(`Подключение к серверу... (${attempt + 1}/${BROKERS.length * 2})`);
+    this.notifyStatus(`Подключение... (${attempt + 1}/${BROKERS.length * 3})`);
+    console.log(`[Multiplayer] Попытка ${attempt + 1}: ${brokerUrl}`);
 
     try {
       // Динамическая загрузка MQTT
@@ -120,14 +126,16 @@ export class GlobalMultiplayer {
       });
 
       const timeout = setTimeout(() => {
-        this.notifyStatus('Таймаут, пробуем другой сервер...');
+        console.log(`[Multiplayer] Таймаут подключения к ${brokerUrl}`);
+        this.notifyStatus('Таймаут, следующий сервер...');
         client.end(true);
         this.brokerIndex = (this.brokerIndex + 1) % BROKERS.length;
-        setTimeout(() => this.doConnect(attempt + 1), 3000);
+        setTimeout(() => this.doConnect(attempt + 1), 2000);
       }, 5000);
 
       client.on('connect', () => {
         clearTimeout(timeout);
+        console.log(`[Multiplayer] ✓ Успешно подключено к ${brokerUrl}`);
         this.client = client;
         this.connected = true;
         this.connecting = false;
@@ -149,13 +157,14 @@ export class GlobalMultiplayer {
 
       client.on('error', (err: any) => {
         clearTimeout(timeout);
-        console.warn('MQTT error:', err.message);
+        console.warn(`[Multiplayer] Ошибка подключения к ${brokerUrl}:`, err.message || err);
         client.end(true);
         this.brokerIndex = (this.brokerIndex + 1) % BROKERS.length;
-        setTimeout(() => this.doConnect(attempt + 1), 3000);
+        setTimeout(() => this.doConnect(attempt + 1), 2000);
       });
 
       client.on('close', () => {
+        console.log(`[Multiplayer] Соединение закрыто: ${brokerUrl}`);
         this.connected = false;
         if (this.onConnectionChange) this.onConnectionChange(false);
       });
@@ -168,9 +177,9 @@ export class GlobalMultiplayer {
         this.handleMessage(topic, message.toString());
       });
     } catch (e) {
-      console.error('Connect error:', e);
+      console.error(`[Multiplayer] Критическая ошибка подключения:`, e);
       this.brokerIndex = (this.brokerIndex + 1) % BROKERS.length;
-      setTimeout(() => this.doConnect(attempt + 1), 3000);
+      setTimeout(() => this.doConnect(attempt + 1), 2000);
     }
   }
 
