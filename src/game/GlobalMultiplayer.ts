@@ -38,6 +38,8 @@ const BROKERS = [
   'wss://test.mosquitto.org:8081',
   'wss://broker.emqx.io:8084/mqtt',
   'wss://public.mqtthq.com:8084/mqtt',
+  'wss://mqtt.cesiumtech.com:443',
+  'wss://broker.thingsboard.io:443',
 ];
 
 // Единый глобальный топик — все игроки в одном мире
