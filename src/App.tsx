@@ -85,10 +85,13 @@ function App() {
       }
     });
 
+    // Показываем модальное окно СРАЗУ, не ждём загрузки игры
+    setShowNameModal(true);
+    setIsLoading(false);
+    
+    // Игру инициализируем в фоне
     engine.init().then(() => {
-      setIsLoading(false);
-      // Показываем модальное окно для ввода имени
-      setShowNameModal(true);
+      console.log('[Game] Игра загружена');
     });
 
     // Инициализация мультиплеера
