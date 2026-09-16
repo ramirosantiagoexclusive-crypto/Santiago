@@ -26,7 +26,7 @@ function App() {
     x: 50, y: 50, animation: 'idle', direction: 'down',
     emotion: null, isRunning: false, isJumping: false,
   });
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false); // Сразу false - не блокируем UI
   const [activeEmotion, setActiveEmotion] = useState<Emotion | null>(null);
   const [isMobile, setIsMobile] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
