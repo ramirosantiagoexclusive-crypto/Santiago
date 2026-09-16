@@ -2,12 +2,17 @@
   "name": "rpg25d-server",
   "version": "1.0.0",
   "description": "WebSocket сервер для 2.5D RPG мультиплеера",
-  "main": "index.js",
+  "main": "server.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node server.js",
+    "dev": "node --watch server.js"
   },
   "dependencies": {
-    "ws": "^8.16.0"
+    "compression": "^1.7.4",
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "express-rate-limit": "^7.1.5",
+    "socket.io": "^4.7.4"
   },
   "engines": {
     "node": ">=18.0.0"
