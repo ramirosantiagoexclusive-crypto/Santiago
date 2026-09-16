@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { GameEngine, GameState } from './game/GameEngine';
-import { GlobalMultiplayer, PlayerData, ChatMessage } from './game/GlobalMultiplayer';
+import { MultiplayerClient, PlayerData, ChatMessage } from './game/MultiplayerClient';
 import type { Emotion, Direction, AnimationType } from './game/SpriteGenerator';
 import { VirtualJoystick } from './components/VirtualJoystick';
 import { MobileControls } from './components/MobileControls';
 import { ServerStatus } from './components/ServerStatus';
 import { ChatPanel } from './components/ChatPanel';
+import { NameModal } from './components/NameModal';
 
 const EMOTION_ICONS: { emotion: Emotion; icon: string; label: string; key: string }[] = [
   { emotion: 'happy', icon: '😊', label: 'Радость', key: '1' },
@@ -19,7 +20,7 @@ const EMOTION_ICONS: { emotion: Emotion; icon: string; label: string; key: strin
 function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<GameEngine | null>(null);
-  const mpRef = useRef<GlobalMultiplayer | null>(null);
+  const mpRef = useRef<MultiplayerClient | null>(null);
   
   const [gameState, setGameState] = useState<GameState>({
     x: 50, y: 50, animation: 'idle', direction: 'down',
@@ -33,10 +34,12 @@ function App() {
   // Мультиплеер
   const [mpStatus, setMpStatus] = useState('Инициализация...');
   const [mpConnected, setMpConnected] = useState(false);
-  const [mpConnecting, setMpConnecting] = useState(true);
   const [mpPlayers, setMpPlayers] = useState<PlayerData[]>([]);
   const [playerName, setPlayerName] = useState('');
+  const [playerColor, setPlayerColor] = useState('#3B82F6');
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [showNameModal, setShowNameModal] = useState(false);
+  const [hasJoined, setHasJoined] = useState(false);
 
   // Определяем мобильное устройство
   useEffect(() => {
@@ -71,8 +74,8 @@ function App() {
       if (!state.emotion) setActiveEmotion(null);
 
       // Отправляем обновление на сервер
-      if (mpRef.current?.isConnected()) {
-        mpRef.current.updateMyPlayer({
+      if (mpRef.current?.isConnected() && hasJoined) {
+        mpRef.current.updatePlayer({
           x: state.x * 64,
           y: state.y * 64,
           direction: state.direction as Direction,
@@ -84,20 +87,21 @@ function App() {
 
     engine.init().then(() => {
       setIsLoading(false);
+      // Показываем модальное окно для ввода имени
+      setShowNameModal(true);
     });
 
-    // Инициализация глобального мультиплеера
-    const mp = new GlobalMultiplayer();
+    // Инициализация мультиплеера
+    const mp = new MultiplayerClient();
     mpRef.current = mp;
-    setPlayerName(mp.getMyName());
 
-    // Автоподключение в фоне (не блокирует игру)
+    // Автоподключение
     mp.connect();
 
-    mp.setOnPlayersUpdate((players: PlayerData[]) => {
+    mp.setOnPlayersUpdate((players) => {
       setMpPlayers(players);
       // Передаём других игроков в движок
-      engine.setOtherPlayers(players.map((p: PlayerData) => ({
+      engine.setOtherPlayers(players.map((p) => ({
         id: p.id,
         name: p.name,
         x: p.x,
@@ -109,16 +113,15 @@ function App() {
       })));
     });
 
-    mp.setOnStatusChange((status: string) => {
+    mp.setOnStatusChange((status) => {
       setMpStatus(status);
     });
 
-    mp.setOnConnectionChange((connected: boolean) => {
+    mp.setOnConnectionChange((connected) => {
       setMpConnected(connected);
-      setMpConnecting(false);
     });
 
-    mp.setOnChatMessage((msg: ChatMessage) => {
+    mp.setOnChatMessage((msg) => {
       setChatMessages(prev => [...prev.slice(-50), msg]);
     });
 
@@ -127,6 +130,23 @@ function App() {
       engine.destroy();
       mp.disconnect();
     };
+  }, [hasJoined]);
+
+  // Обработчик ввода имени
+  const handleNameSubmit = useCallback((name: string) => {
+    setPlayerName(name);
+    // Генерируем случайный цвет
+    const colors = ['#EF4444', '#F59E0B', '#10B981', '#3B82F6', '#8B5CF6', '#EC4899', '#14B8A6', '#F97316'];
+    const color = colors[Math.floor(Math.random() * colors.length)];
+    setPlayerColor(color);
+    
+    // Входим в игру
+    if (mpRef.current) {
+      mpRef.current.joinGame(name, 3200, 3200, color);
+    }
+    
+    setShowNameModal(false);
+    setHasJoined(true);
   }, []);
 
   // Обработчики эмоций
@@ -186,6 +206,9 @@ function App() {
         tabIndex={0}
       />
 
+      {/* Модальное окно для ввода имени */}
+      {showNameModal && <NameModal onSubmit={handleNameSubmit} />}
+
       {/* Экран загрузки */}
       {isLoading && (
         <div className="absolute inset-0 flex items-center justify-center bg-gray-900 z-50">
@@ -200,15 +223,15 @@ function App() {
       {/* Статус сервера */}
       <ServerStatus
         connected={mpConnected}
-        connecting={mpConnecting}
+        connecting={!mpConnected}
         status={mpStatus}
-        playersCount={mpPlayers.length}
+        playersCount={mpPlayers.length + (hasJoined ? 1 : 0)}
         myName={playerName}
         onNameChange={handleNameChange}
       />
 
       {/* Чат */}
-      {mpConnected && (
+      {mpConnected && hasJoined && (
         <ChatPanel
           messages={chatMessages}
           onSend={handleSendChat}
@@ -217,34 +240,36 @@ function App() {
       )}
 
       {/* Панель эмоций */}
-      <div className={`absolute ${isMobile ? 'bottom-28' : 'bottom-4'} left-1/2 -translate-x-1/2 flex gap-1.5 z-10`}>
-        {EMOTION_ICONS.map(({ emotion, icon, label, key }) => (
-          <button
-            key={emotion}
-            onClick={() => handleEmotionClick(emotion)}
-            className={`
-              relative flex flex-col items-center justify-center
-              ${isMobile ? 'w-11 h-11' : 'w-14 h-14'} rounded-xl transition-all duration-200
-              ${activeEmotion === emotion
-                ? 'bg-purple-600 scale-110 shadow-lg shadow-purple-500/50 ring-2 ring-purple-300'
-                : 'bg-gray-800/80 hover:bg-gray-700/80 hover:scale-105'
-              }
-              backdrop-blur-sm border border-gray-600/50
-            `}
-            title={`${label} (${key})`}
-          >
-            <span className={isMobile ? 'text-lg' : 'text-2xl'}>{icon}</span>
-            {!isMobile && (
-              <span className="absolute -top-1 -right-1 text-[10px] bg-gray-900 text-gray-300 rounded px-1">
-                {key}
-              </span>
-            )}
-          </button>
-        ))}
-      </div>
+      {hasJoined && (
+        <div className={`absolute ${isMobile ? 'bottom-28' : 'bottom-4'} left-1/2 -translate-x-1/2 flex gap-1.5 z-10`}>
+          {EMOTION_ICONS.map(({ emotion, icon, label, key }) => (
+            <button
+              key={emotion}
+              onClick={() => handleEmotionClick(emotion)}
+              className={`
+                relative flex flex-col items-center justify-center
+                ${isMobile ? 'w-11 h-11' : 'w-14 h-14'} rounded-xl transition-all duration-200
+                ${activeEmotion === emotion
+                  ? 'bg-purple-600 scale-110 shadow-lg shadow-purple-500/50 ring-2 ring-purple-300'
+                  : 'bg-gray-800/80 hover:bg-gray-700/80 hover:scale-105'
+                }
+                backdrop-blur-sm border border-gray-600/50
+              `}
+              title={`${label} (${key})`}
+            >
+              <span className={isMobile ? 'text-lg' : 'text-2xl'}>{icon}</span>
+              {!isMobile && (
+                <span className="absolute -top-1 -right-1 text-[10px] bg-gray-900 text-gray-300 rounded px-1">
+                  {key}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Мобильные контролы */}
-      {isMobile && (
+      {isMobile && hasJoined && (
         <>
           <div className="fixed bottom-8 left-8 z-20">
             <VirtualJoystick
@@ -262,7 +287,7 @@ function App() {
       )}
 
       {/* Подсказки управления (ПК) */}
-      {!isMobile && (
+      {!isMobile && hasJoined && (
         <div className="absolute bottom-4 right-4 z-10">
           <div className="bg-gray-800/80 backdrop-blur-sm rounded-lg p-3 border border-gray-600/50 text-xs text-gray-300 max-w-[200px]">
             <p className="font-bold text-white mb-1">Управление:</p>
@@ -275,16 +300,18 @@ function App() {
       )}
 
       {/* Статус */}
-      <div className="absolute top-4 left-4 z-10">
-        <div className="bg-gray-800/80 backdrop-blur-sm rounded-lg px-3 py-2 border border-gray-600/50">
-          <p className="text-white text-xs">
-            [{gameState.x}, {gameState.y}] {getAnimationLabel(gameState.animation)}
-          </p>
+      {hasJoined && (
+        <div className="absolute top-4 left-4 z-10">
+          <div className="bg-gray-800/80 backdrop-blur-sm rounded-lg px-3 py-2 border border-gray-600/50">
+            <p className="text-white text-xs">
+              [{gameState.x}, {gameState.y}] {getAnimationLabel(gameState.animation)}
+            </p>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Заголовок (ПК) */}
-      {!isMobile && (
+      {!isMobile && hasJoined && (
         <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10">
           <div className="bg-gray-800/80 backdrop-blur-sm rounded-lg px-6 py-2 border border-gray-600/50">
             <h1 className="text-white font-bold text-lg tracking-wide">
