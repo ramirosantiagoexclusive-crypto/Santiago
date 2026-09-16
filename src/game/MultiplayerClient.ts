@@ -7,9 +7,10 @@
 import { io, Socket } from 'socket.io-client';
 
 // URL сервера
+// Публичный тестовый сервер (может быть нестабильным)
 // Для локального теста: http://localhost:3001
-// Для продакшена: https://your-app.up.railway.app
-const SERVER_URL = 'http://localhost:3001';
+// Для продакшена: задеплойте на Render.com
+const SERVER_URL = 'https://rpg25d-server.onrender.com';
 
 // ============================================
 // Типы данных
