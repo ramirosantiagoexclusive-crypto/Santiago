@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import type { ChatMessage } from '../game/GlobalMultiplayer';
+import type { ChatMessage } from '../game/WebSocketMultiplayer';
 
 interface ChatPanelProps {
   messages: ChatMessage[];
