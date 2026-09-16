@@ -5,7 +5,17 @@
 // Гарантированно работает без деплоя
 // ============================================
 
-import Peer, { DataConnection } from 'peerjs';
+// Динамическая загрузка PeerJS чтобы не блокировать UI
+type PeerType = any;
+type DataConnectionType = any;
+let PeerModule: any = null;
+
+async function loadPeerJS(): Promise<any> {
+  if (!PeerModule) {
+    PeerModule = await import('peerjs');
+  }
+  return PeerModule;
+}
 
 export interface PlayerData {
   id: string;
@@ -33,8 +43,8 @@ export interface ChatMessage {
 // Класс мультиплеера на PeerJS
 // ============================================
 export class MultiplayerClient {
-  private peer: Peer | null = null;
-  private connections: Map<string, DataConnection> = new Map();
+  private peer: any = null;
+  private connections: Map<string, any> = new Map();
   private players: Map<string, PlayerData> = new Map();
   private myId: string = '';
   private myName: string = '';
@@ -62,7 +72,7 @@ export class MultiplayerClient {
   // ============================================
   // Подключение к PeerJS серверу
   // ============================================
-  connect(): void {
+  async connect(): Promise<void> {
     if (this.peer) {
       console.log('[PeerJS] Уже подключено');
       return;
@@ -72,6 +82,10 @@ export class MultiplayerClient {
     console.log('[PeerJS] Подключение к публичному серверу...');
 
     try {
+      // Динамическая загрузка PeerJS
+      const peerModule = await loadPeerJS();
+      const Peer = peerModule.default;
+      
       // Подключаемся к публичному PeerJS серверу
       this.peer = new Peer(this.myId, {
         host: '0.peerjs.com',
@@ -84,7 +98,7 @@ export class MultiplayerClient {
       // ============================================
       // Обработчики событий
       // ============================================
-      this.peer.on('open', (id) => {
+      this.peer.on('open', (id: string) => {
         console.log('[PeerJS] ✓ Подключено с ID:', id);
         this.myId = id;
         this.connected = true;
@@ -92,12 +106,12 @@ export class MultiplayerClient {
         if (this.onConnectionChange) this.onConnectionChange(true);
       });
 
-      this.peer.on('connection', (conn) => {
+      this.peer.on('connection', (conn: any) => {
         console.log('[PeerJS] Новое подключение:', conn.peer);
         this.handleConnection(conn);
       });
 
-      this.peer.on('error', (err) => {
+      this.peer.on('error', (err: any) => {
         console.error('[PeerJS] Ошибка:', err);
         this.notifyStatus('Ошибка подключения');
         
@@ -130,7 +144,7 @@ export class MultiplayerClient {
   // ============================================
   // Обработка новых подключений
   // ============================================
-  private handleConnection(conn: DataConnection): void {
+  private handleConnection(conn: any): void {
     conn.on('open', () => {
       console.log('[PeerJS] Соединение открыто с:', conn.peer);
       this.connections.set(conn.peer, conn);
@@ -183,7 +197,7 @@ export class MultiplayerClient {
       this.notifyPlayersUpdate();
     });
 
-    conn.on('error', (err) => {
+    conn.on('error', (err: any) => {
       console.error('[PeerJS] Ошибка соединения:', err);
       this.connections.delete(conn.peer);
     });
