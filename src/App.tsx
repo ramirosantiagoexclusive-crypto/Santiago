@@ -95,8 +95,8 @@ function App() {
     const mp = new MultiplayerClient();
     mpRef.current = mp;
 
-    // Автоподключение
-    mp.connect();
+    // НЕ подключаемся сразу - только после ввода имени
+    // mp.connect(); // Убрал автоподключение
 
     mp.setOnPlayersUpdate((players) => {
       setMpPlayers(players);
@@ -140,9 +140,12 @@ function App() {
     const color = colors[Math.floor(Math.random() * colors.length)];
     setPlayerColor(color);
     
-    // Входим в игру
+    // Подключаемся к мультиплееру только сейчас
     if (mpRef.current) {
-      mpRef.current.joinGame(name, 3200, 3200, color);
+      mpRef.current.connect().then(() => {
+        // Входим в игру после подключения
+        mpRef.current?.joinGame(name, 3200, 3200, color);
+      });
     }
     
     setShowNameModal(false);
