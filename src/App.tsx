@@ -51,8 +51,15 @@ function App() {
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  // Инициализация игры
+  // Показываем модальное окно СРАЗУ при загрузке
   useEffect(() => {
+    setShowNameModal(true);
+  }, []);
+
+  // Инициализация игры ТОЛЬКО после ввода имени
+  useEffect(() => {
+    if (!hasJoined) return;
+
     const canvas = canvasRef.current;
     if (!canvas) return;
 
@@ -74,7 +81,7 @@ function App() {
       if (!state.emotion) setActiveEmotion(null);
 
       // Отправляем обновление на сервер
-      if (mpRef.current?.isConnected() && hasJoined) {
+      if (mpRef.current?.isConnected()) {
         mpRef.current.updatePlayer({
           x: state.x * 64,
           y: state.y * 64,
@@ -85,25 +92,24 @@ function App() {
       }
     });
 
-    // Показываем модальное окно СРАЗУ, не ждём загрузки игры
-    setShowNameModal(true);
-    setIsLoading(false);
-    
-    // Игру инициализируем в фоне
+    // Инициализируем игру в фоне
     engine.init().then(() => {
       console.log('[Game] Игра загружена');
+      
+      // После загрузки игры подключаем мультиплеер
+      if (mpRef.current) {
+        mpRef.current.connect().then(() => {
+          mpRef.current?.joinGame(playerName, 3200, 3200, playerColor);
+        });
+      }
     });
 
     // Инициализация мультиплеера
     const mp = new MultiplayerClient();
     mpRef.current = mp;
 
-    // НЕ подключаемся сразу - только после ввода имени
-    // mp.connect(); // Убрал автоподключение
-
     mp.setOnPlayersUpdate((players) => {
       setMpPlayers(players);
-      // Передаём других игроков в движок
       engine.setOtherPlayers(players.map((p) => ({
         id: p.id,
         name: p.name,
@@ -143,16 +149,11 @@ function App() {
     const color = colors[Math.floor(Math.random() * colors.length)];
     setPlayerColor(color);
     
-    // Подключаемся к мультиплееру только сейчас
-    if (mpRef.current) {
-      mpRef.current.connect().then(() => {
-        // Входим в игру после подключения
-        mpRef.current?.joinGame(name, 3200, 3200, color);
-      });
-    }
-    
+    // Закрываем модальное окно и показываем игру
     setShowNameModal(false);
     setHasJoined(true);
+    
+    // Мультиплеер подключится в useEffect после рендеринга canvas
   }, []);
 
   // Обработчики эмоций
@@ -206,11 +207,14 @@ function App() {
 
   return (
     <div className="relative w-full h-screen overflow-hidden bg-gray-900">
-      <canvas
-        ref={canvasRef}
-        className="absolute inset-0 w-full h-full"
-        tabIndex={0}
-      />
+      {/* Canvas показываем ТОЛЬКО после ввода имени */}
+      {hasJoined && (
+        <canvas
+          ref={canvasRef}
+          className="absolute inset-0 w-full h-full"
+          tabIndex={0}
+        />
+      )}
 
       {/* Модальное окно для ввода имени */}
       {showNameModal && <NameModal onSubmit={handleNameSubmit} />}
