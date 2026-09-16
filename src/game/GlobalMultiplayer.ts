@@ -68,7 +68,10 @@ export class GlobalMultiplayer {
   }
 
   private generateId(): string {
-    return 'p_' + Date.now().toString(36) + Math.random().toString(36).substring(2, 7);
+    // Уникальный ID с учётом случайности и времени
+    const rand = Math.random().toString(36).substring(2, 15);
+    const rand2 = Math.random().toString(36).substring(2, 15);
+    return 'rpg25d_' + Date.now().toString(36) + '_' + rand + rand2;
   }
 
   private getRandomColor(): string {
@@ -87,13 +90,21 @@ export class GlobalMultiplayer {
   private tryConnectBackground(): void {
     // Используем setTimeout чтобы не блокировать рендер игры
     setTimeout(async () => {
-      await this.doConnect();
+      await this.doConnect(0);
     }, 100);
   }
 
-  private async doConnect(): Promise<void> {
+  private async doConnect(attempt: number = 0): Promise<void> {
+    // Ограничиваем количество попыток
+    if (attempt >= BROKERS.length * 2) {
+      this.notifyStatus('Сервер недоступен. Играйте в одиночном режиме.');
+      this.connecting = false;
+      if (this.onConnectionChange) this.onConnectionChange(false);
+      return;
+    }
+
     const brokerUrl = BROKERS[this.brokerIndex];
-    this.notifyStatus(`Подключение к серверу...`);
+    this.notifyStatus(`Подключение к серверу... (${attempt + 1}/${BROKERS.length * 2})`);
 
     try {
       // Динамическая загрузка MQTT
@@ -103,15 +114,16 @@ export class GlobalMultiplayer {
         clientId: this.myId,
         clean: true,
         connectTimeout: 5000,
-        reconnectPeriod: 3000,
+        reconnectPeriod: 0, // Отключаем автоматический реконнект
         keepalive: 20,
+        rejectUnauthorized: false,
       });
 
       const timeout = setTimeout(() => {
         this.notifyStatus('Таймаут, пробуем другой сервер...');
         client.end(true);
         this.brokerIndex = (this.brokerIndex + 1) % BROKERS.length;
-        setTimeout(() => this.doConnect(), 3000);
+        setTimeout(() => this.doConnect(attempt + 1), 3000);
       }, 5000);
 
       client.on('connect', () => {
@@ -128,12 +140,19 @@ export class GlobalMultiplayer {
         this.startCleanup();
       });
 
+      // Обработка потери соединения
+      client.on('offline', () => {
+        this.connected = false;
+        this.notifyStatus('Соединение потеряно');
+        if (this.onConnectionChange) this.onConnectionChange(false);
+      });
+
       client.on('error', (err: any) => {
         clearTimeout(timeout);
         console.warn('MQTT error:', err.message);
         client.end(true);
         this.brokerIndex = (this.brokerIndex + 1) % BROKERS.length;
-        setTimeout(() => this.doConnect(), 3000);
+        setTimeout(() => this.doConnect(attempt + 1), 3000);
       });
 
       client.on('close', () => {
@@ -151,7 +170,7 @@ export class GlobalMultiplayer {
     } catch (e) {
       console.error('Connect error:', e);
       this.brokerIndex = (this.brokerIndex + 1) % BROKERS.length;
-      setTimeout(() => this.doConnect(), 3000);
+      setTimeout(() => this.doConnect(attempt + 1), 3000);
     }
   }
 
