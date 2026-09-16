@@ -26,7 +26,7 @@ function App() {
     x: 50, y: 50, animation: 'idle', direction: 'down',
     emotion: null, isRunning: false, isJumping: false,
   });
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false); // Сразу false - не блокируем UI
   const [activeEmotion, setActiveEmotion] = useState<Emotion | null>(null);
   const [isMobile, setIsMobile] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
@@ -85,18 +85,21 @@ function App() {
       }
     });
 
+    // Показываем модальное окно СРАЗУ, не ждём загрузки игры
+    setShowNameModal(true);
+    setIsLoading(false);
+    
+    // Игру инициализируем в фоне
     engine.init().then(() => {
-      setIsLoading(false);
-      // Показываем модальное окно для ввода имени
-      setShowNameModal(true);
+      console.log('[Game] Игра загружена');
     });
 
     // Инициализация мультиплеера
     const mp = new MultiplayerClient();
     mpRef.current = mp;
 
-    // Автоподключение
-    mp.connect();
+    // НЕ подключаемся сразу - только после ввода имени
+    // mp.connect(); // Убрал автоподключение
 
     mp.setOnPlayersUpdate((players) => {
       setMpPlayers(players);
@@ -140,9 +143,12 @@ function App() {
     const color = colors[Math.floor(Math.random() * colors.length)];
     setPlayerColor(color);
     
-    // Входим в игру
+    // Подключаемся к мультиплееру только сейчас
     if (mpRef.current) {
-      mpRef.current.joinGame(name, 3200, 3200, color);
+      mpRef.current.connect().then(() => {
+        // Входим в игру после подключения
+        mpRef.current?.joinGame(name, 3200, 3200, color);
+      });
     }
     
     setShowNameModal(false);
@@ -220,15 +226,17 @@ function App() {
         </div>
       )}
 
-      {/* Статус сервера */}
-      <ServerStatus
-        connected={mpConnected}
-        connecting={!mpConnected}
-        status={mpStatus}
-        playersCount={mpPlayers.length + (hasJoined ? 1 : 0)}
-        myName={playerName}
-        onNameChange={handleNameChange}
-      />
+      {/* Статус сервера - скрыт на мобильных */}
+      {!isMobile && (
+        <ServerStatus
+          connected={mpConnected}
+          connecting={!mpConnected}
+          status={mpStatus}
+          playersCount={mpPlayers.length + (hasJoined ? 1 : 0)}
+          myName={playerName}
+          onNameChange={handleNameChange}
+        />
+      )}
 
       {/* Чат */}
       {mpConnected && hasJoined && (
@@ -241,28 +249,23 @@ function App() {
 
       {/* Панель эмоций */}
       {hasJoined && (
-        <div className={`absolute ${isMobile ? 'bottom-28' : 'bottom-4'} left-1/2 -translate-x-1/2 flex gap-1.5 z-10`}>
+        <div className={`absolute ${isMobile ? 'bottom-32' : 'bottom-4'} left-1/2 -translate-x-1/2 flex gap-1 z-10`}>
           {EMOTION_ICONS.map(({ emotion, icon, label, key }) => (
             <button
               key={emotion}
               onClick={() => handleEmotionClick(emotion)}
               className={`
-                relative flex flex-col items-center justify-center
-                ${isMobile ? 'w-11 h-11' : 'w-14 h-14'} rounded-xl transition-all duration-200
+                relative flex items-center justify-center
+                ${isMobile ? 'w-10 h-10' : 'w-14 h-14'} rounded-lg transition-all duration-200
                 ${activeEmotion === emotion
-                  ? 'bg-purple-600 scale-110 shadow-lg shadow-purple-500/50 ring-2 ring-purple-300'
-                  : 'bg-gray-800/80 hover:bg-gray-700/80 hover:scale-105'
+                  ? 'bg-purple-600 scale-110 shadow-lg shadow-purple-500/50'
+                  : 'bg-gray-800/70 active:bg-gray-700'
                 }
-                backdrop-blur-sm border border-gray-600/50
+                backdrop-blur-sm border border-gray-600/30
               `}
-              title={`${label} (${key})`}
+              title={`${label}`}
             >
-              <span className={isMobile ? 'text-lg' : 'text-2xl'}>{icon}</span>
-              {!isMobile && (
-                <span className="absolute -top-1 -right-1 text-[10px] bg-gray-900 text-gray-300 rounded px-1">
-                  {key}
-                </span>
-              )}
+              <span className={isMobile ? 'text-base' : 'text-2xl'}>{icon}</span>
             </button>
           ))}
         </div>
@@ -271,11 +274,11 @@ function App() {
       {/* Мобильные контролы */}
       {isMobile && hasJoined && (
         <>
-          <div className="fixed bottom-8 left-8 z-20">
+          <div className="fixed bottom-4 left-4 z-20 md:hidden">
             <VirtualJoystick
               onMove={handleJoystickMove}
               onMoveEnd={handleJoystickEnd}
-              size={130}
+              size={120}
             />
           </div>
           <MobileControls
@@ -299,8 +302,8 @@ function App() {
         </div>
       )}
 
-      {/* Статус */}
-      {hasJoined && (
+      {/* Статус - только на ПК */}
+      {!isMobile && hasJoined && (
         <div className="absolute top-4 left-4 z-10">
           <div className="bg-gray-800/80 backdrop-blur-sm rounded-lg px-3 py-2 border border-gray-600/50">
             <p className="text-white text-xs">
@@ -310,13 +313,24 @@ function App() {
         </div>
       )}
 
-      {/* Заголовок (ПК) */}
+      {/* Заголовок - только на ПК */}
       {!isMobile && hasJoined && (
         <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10">
           <div className="bg-gray-800/80 backdrop-blur-sm rounded-lg px-6 py-2 border border-gray-600/50">
             <h1 className="text-white font-bold text-lg tracking-wide">
               ⚔️ 2.5D RPG Adventure
             </h1>
+          </div>
+        </div>
+      )}
+
+      {/* Мобильный индикатор подключения - компактный */}
+      {isMobile && hasJoined && (
+        <div className="fixed top-2 right-2 z-30 md:hidden">
+          <div className={`px-2 py-1 rounded-full text-xs font-bold ${
+            mpConnected ? 'bg-green-600/80 text-white' : 'bg-red-600/80 text-white'
+          }`}>
+            {mpConnected ? '●' : '○'} {mpPlayers.length + 1}
           </div>
         </div>
       )}

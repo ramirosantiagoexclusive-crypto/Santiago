@@ -39,6 +39,7 @@ const io = new Server(server, {
 // ============================================
 // Middleware
 // ============================================
+app.set('trust proxy', true); // Включаем доверие к прокси (для Codespaces/Railway)
 app.use(compression());
 app.use(cors({ origin: ALLOWED_ORIGINS }));
 app.use(express.json());
@@ -46,7 +47,9 @@ app.use(express.json());
 // Rate limiting для HTTP endpoints
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 минут
-  max: 100 // 100 запросов
+  max: 100, // 100 запросов
+  standardHeaders: true,
+  legacyHeaders: false
 });
 app.use(limiter);
 

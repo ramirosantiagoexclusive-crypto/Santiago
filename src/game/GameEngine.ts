@@ -111,15 +111,43 @@ export class GameEngine {
 
   // Инициализация ресурсов
   async init(): Promise<void> {
-    // Генерируем спрайт-лист
-    const spriteData = generateSpriteSheet();
-    this.spriteSheet = spriteData.canvas;
+    // Используем setTimeout для разбивки тяжёлых операций на макрозадачи
+    // Это даёт браузеру возможность обновить UI между операциями
+    await new Promise(resolve => setTimeout(resolve, 0));
+    
+    // Генерируем спрайт-лист (самая тяжёлая операция)
+    await new Promise(resolve => {
+      setTimeout(() => {
+        const spriteData = generateSpriteSheet();
+        this.spriteSheet = spriteData.canvas;
+        resolve(null);
+      }, 0);
+    });
+
+    // Даём браузеру обновить UI
+    await new Promise(resolve => setTimeout(resolve, 0));
 
     // Генерируем текстуры тайлов
-    this.tileTextures = generateTileTextures();
+    await new Promise(resolve => {
+      setTimeout(() => {
+        this.tileTextures = generateTileTextures();
+        resolve(null);
+      }, 0);
+    });
+
+    // Даём браузеру обновить UI
+    await new Promise(resolve => setTimeout(resolve, 0));
 
     // Генерируем карту
-    this.map = generateMap(42);
+    await new Promise(resolve => {
+      setTimeout(() => {
+        this.map = generateMap(42);
+        resolve(null);
+      }, 0);
+    });
+
+    // Даём браузеру обновить UI
+    await new Promise(resolve => setTimeout(resolve, 0));
 
     // Запускаем игровой цикл
     this.lastTime = performance.now();
