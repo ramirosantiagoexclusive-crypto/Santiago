@@ -10,12 +10,10 @@ type PeerType = any;
 type DataConnectionType = any;
 let PeerModule: any = null;
 
-async function loadPeerJS(): Promise<any> {
-  if (!PeerModule) {
-    PeerModule = await import('peerjs');
-  }
-  return PeerModule;
-}
+// URL сервера (замените на ваш после деплоя на Railway)
+// Для локального теста: http://localhost:3001
+// Для продакшена: https://your-app.up.railway.app
+const SERVER_URL = 'http://localhost:3001';
 
 export interface PlayerData {
   id: string;
