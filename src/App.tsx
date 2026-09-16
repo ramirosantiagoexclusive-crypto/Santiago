@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { GameEngine, GameState } from './game/GameEngine';
-import { WebSocketMultiplayer, PlayerData, ChatMessage } from './game/WebSocketMultiplayer';
+import { GlobalMultiplayer, PlayerData, ChatMessage } from './game/GlobalMultiplayer';
 import type { Emotion, Direction, AnimationType } from './game/SpriteGenerator';
 import { VirtualJoystick } from './components/VirtualJoystick';
 import { MobileControls } from './components/MobileControls';
@@ -19,7 +19,7 @@ const EMOTION_ICONS: { emotion: Emotion; icon: string; label: string; key: strin
 function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<GameEngine | null>(null);
-  const mpRef = useRef<WebSocketMultiplayer | null>(null);
+  const mpRef = useRef<GlobalMultiplayer | null>(null);
   
   const [gameState, setGameState] = useState<GameState>({
     x: 50, y: 50, animation: 'idle', direction: 'down',
@@ -87,7 +87,7 @@ function App() {
     });
 
     // Инициализация глобального мультиплеера
-    const mp = new WebSocketMultiplayer();
+    const mp = new GlobalMultiplayer();
     mpRef.current = mp;
     setPlayerName(mp.getMyName());
 
