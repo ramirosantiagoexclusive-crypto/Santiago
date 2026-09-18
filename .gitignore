@@ -2,19 +2,14 @@
 # Dependencies
 node_modules/
 
-# Build artifacts
-dist/
-build/
-target/
+# Environment
+.env
+.env.local
+.env.*
 
 # Logs and temp files
 *.log
 *.tmp
-
-# Environment
-.env
-.env.local
-*.env.*
 
 # Editors
 .vscode/
@@ -25,22 +20,20 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
-
-# Compiled JavaScript (if applicable)
-*.js.map
-*.tsbuildinfo
-
-# Coverage
-coverage/
-htmlcov/
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
 .coverage
-
-# Testing
-.nyc_output/
-.mypy_cache/
-.pytest_cache/
-
-# OS
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.git/modules/
 .DS_Store
-Thumbs.db
 ```

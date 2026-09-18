@@ -6,16 +6,31 @@
 
 import { io, Socket } from 'socket.io-client';
 
-// URL сервера (замените на ваш после деплоя на Railway)
-// Для локального теста: http://localhost:3001
-// Для продакшена: https://your-app.up.railway.app
-const SERVER_URL = 'http://localhost:3001';
+// URL сервера - определяем динамически в зависимости от окружения
+const getServerUrl = (): string => {
+  // Проверяем переменную окружения (для Vite)
+  const envUrl = import.meta.env.VITE_SERVER_URL;
+  if (envUrl) return envUrl;
+  
+  // Для локальной разработки
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    return 'http://localhost:3001';
+  }
+  
+  // Для продакшена - используем тот же хост, что и фронтенд
+  const protocol = window.location.protocol;
+  return `${protocol}//${window.location.hostname}`;
+};
+
+const SERVER_URL = getServerUrl();
 
 export interface PlayerData {
   id: string;
   name: string;
   x: number;
   y: number;
+  targetX?: number; // Для интерполяции
+  targetY?: number; // Для интерполяции
   direction: string;
   animation: string;
   emotion: string | null;
@@ -92,20 +107,45 @@ export class MultiplayerClient {
     this.socket.on('players:list', (players: PlayerData[]) => {
       console.log('[Multiplayer] Получен список игроков:', players.length);
       this.players.clear();
-      players.forEach(p => this.players.set(p.id, p));
+      players.forEach(p => {
+        // Инициализируем targetX и targetY для интерполяции
+        const playerWithTargets = {
+          ...p,
+          targetX: p.x,
+          targetY: p.y
+        };
+        this.players.set(p.id, playerWithTargets);
+      });
       this.notifyPlayersUpdate();
     });
 
     this.socket.on('player:joined', (player: PlayerData) => {
       console.log('[Multiplayer] Игрок присоединился:', player.name);
-      this.players.set(player.id, player);
+      // Инициализируем targetX и targetY для интерполяции
+      const playerWithTargets = {
+        ...player,
+        targetX: player.x,
+        targetY: player.y
+      };
+      this.players.set(player.id, playerWithTargets);
       this.notifyPlayersUpdate();
     });
 
     this.socket.on('player:moved', (player: PlayerData) => {
       const existing = this.players.get(player.id);
       if (existing) {
+        // Сохраняем текущую позицию для интерполяции
+        const prevX = existing.x;
+        const prevY = existing.y;
+        
+        // Обновляем данные игрока
         Object.assign(existing, player);
+        
+        // Устанавливаем целевую позицию для плавной интерполяции
+        existing.x = prevX; // Остаёмся на старой позиции
+        existing.targetX = player.x; // Целевая - новая позиция
+        existing.targetY = player.y;
+        
         this.notifyPlayersUpdate();
       }
     });
