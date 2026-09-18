@@ -35,6 +35,9 @@ export class MultiplayerClient {
   private connected: boolean = false;
   private lastUpdate: number = 0;
   private updateInterval: number = 100; // 10 обновлений в секунду
+  private dynamicUpdateInterval: number = 50; // Динамический интервал (быстрее при движении)
+  private isMoving: boolean = false;
+  private pendingUpdate: { x: number; y: number; direction: string; animation: string; emotion: string | null } | null = null;
 
   // Callbacks
   private onPlayersUpdate: ((players: PlayerData[]) => void) | null = null;
@@ -139,15 +142,48 @@ export class MultiplayerClient {
   }
 
   // ============================================
-  // Обновление позиции (с троттлингом)
+  // Обновление позиции (с динамическим троттлингом)
   // ============================================
   updatePlayer(data: { x: number; y: number; direction: string; animation: string; emotion: string | null }): void {
     if (!this.socket?.connected) return;
 
+    // Определяем, движется ли игрок
+    const isMovingNow = data.animation === 'walk' || data.animation === 'run';
+    this.isMoving = isMovingNow;
+    
+    // Динамический интервал: чаще при движении, реже в покое
+    const currentInterval = isMovingNow ? this.dynamicUpdateInterval : this.updateInterval;
+    
     const now = Date.now();
-    if (now - this.lastUpdate < this.updateInterval) return;
+    if (now - this.lastUpdate < currentInterval) {
+      // Кэшируем последнее обновление для отправки при следующей возможности
+      this.pendingUpdate = data;
+      return;
+    }
+    
     this.lastUpdate = now;
+    this.socket.emit('player:update', data);
+    
+    // Если есть закэшированное обновление, планируем его отправку
+    if (this.pendingUpdate) {
+      setTimeout(() => {
+        if (this.pendingUpdate && this.socket?.connected) {
+          const pending = this.pendingUpdate;
+          this.pendingUpdate = null;
+          this.socket.emit('player:update', pending);
+        }
+      }, currentInterval);
+    }
+  }
 
+  // ============================================
+  // Принудительная отправка обновления (для важных событий)
+  // ============================================
+  forceUpdate(data: { x: number; y: number; direction: string; animation: string; emotion: string | null }): void {
+    if (!this.socket?.connected) return;
+    
+    this.lastUpdate = Date.now();
+    this.pendingUpdate = null;
     this.socket.emit('player:update', data);
   }
 
