@@ -51,6 +51,22 @@ const JUMP_FORCE = -10; // Усиленный прыжок
 const GRAVITY = 0.5;
 const CAMERA_LERP = 0.08;
 
+// Интерфейс другого игрока с интерполяцией
+interface OtherPlayer {
+  id: string;
+  name: string;
+  x: number;
+  y: number;
+  targetX: number;
+  targetY: number;
+  direction: Direction;
+  animation: AnimationType;
+  emotion: Emotion | null;
+  color: string;
+  lastUpdate: number;
+  velocity: { x: number; y: number };
+}
+
 export class GameEngine {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
@@ -66,16 +82,10 @@ export class GameEngine {
   private gameTime: number = 0;
   private onStateChange: ((state: GameState) => void) | null = null;
   private waterAnimOffset: number = 0;
-  private otherPlayers: Array<{
-    id: string;
-    name: string;
-    x: number;
-    y: number;
-    direction: Direction;
-    animation: AnimationType;
-    emotion: Emotion | null;
-    color: string;
-  }> = [];
+  private otherPlayers: Map<string, OtherPlayer> = new Map();
+  private otherPlayerSprites: Map<string, { canvas: HTMLCanvasElement; frame: number }> = new Map();
+  private stateUpdateThrottle: number = 0;
+  private readonly STATE_UPDATE_INTERVAL = 0.1; // Обновляем состояние 10 раз в секунду
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -258,7 +268,7 @@ export class GameEngine {
     }
   }
 
-  // Установить список других игроков (для мультиплеера)
+  // Установить список других игроков (для мультиплеера) с интерполяцией
   setOtherPlayers(players: Array<{
     id: string;
     name: string;
@@ -269,14 +279,115 @@ export class GameEngine {
     emotion: Emotion | null;
     color: string;
   }>): void {
-    this.otherPlayers = players;
+    const now = performance.now();
+    
+    for (const player of players) {
+      const existing = this.otherPlayers.get(player.id);
+      
+      if (!existing) {
+        // Новый игрок
+        this.otherPlayers.set(player.id, {
+          ...player,
+          targetX: player.x,
+          targetY: player.y,
+          lastUpdate: now,
+          velocity: { x: 0, y: 0 }
+        });
+      } else {
+        // Обновляем существующего игрока
+        existing.targetX = player.x;
+        existing.targetY = player.y;
+        existing.direction = player.direction;
+        existing.animation = player.animation;
+        existing.emotion = player.emotion;
+        existing.color = player.color;
+        existing.lastUpdate = now;
+        
+        // Вычисляем скорость для dead reckoning
+        const dt = (now - existing.lastUpdate) / 1000;
+        if (dt > 0) {
+          existing.velocity.x = (player.x - existing.x) / dt;
+          existing.velocity.y = (player.y - existing.y) / dt;
+        }
+      }
+    }
+    
+    // Удаляем игроков, которых нет в новом списке (таймаут 5 секунд)
+    for (const [id, player] of this.otherPlayers.entries()) {
+      if (!players.find(p => p.id === id) && now - player.lastUpdate > 5000) {
+        this.otherPlayers.delete(id);
+        this.otherPlayerSprites.delete(id);
+      }
+    }
   }
 
-  // Рендеринг другого игрока
-  private renderOtherPlayer(ctx: CanvasRenderingContext2D, otherPlayer: typeof this.otherPlayers[0]): void {
+  // Обновление интерполяции других игроков
+  private updateOtherPlayers(dt: number): void {
+    const interpolationDelay = 0.15; // 150мс задержка для сглаживания
+    
+    for (const [id, player] of this.otherPlayers.entries()) {
+      // Плавная интерполяция позиции (LERP)
+      const t = Math.min(1, dt * 8); // Скорость интерполяции
+      
+      player.x += (player.targetX - player.x) * t;
+      player.y += (player.targetY - player.y) * t;
+      
+      // Dead reckoning: предсказываем позицию если давно не было обновлений
+      const timeSinceUpdate = performance.now() - player.lastUpdate;
+      if (timeSinceUpdate > 500 && player.animation === 'walk' || player.animation === 'run') {
+        // Предсказываем движение на основе последней скорости
+        const predictedX = player.x + player.velocity.x * dt;
+        const predictedY = player.y + player.velocity.y * dt;
+        
+        // Проверяем проходимость предсказанной позиции
+        const tileX = Math.floor(predictedX / TILE_SIZE);
+        const tileY = Math.floor(predictedY / TILE_SIZE);
+        
+        if (tileX >= 0 && tileX < MAP_WIDTH && tileY >= 0 && tileY < MAP_HEIGHT && 
+            isWalkable(this.map[tileY][tileX])) {
+          player.x = predictedX;
+          player.y = predictedY;
+        }
+      }
+      
+      // Кэширование спрайта для оптимизации рендеринга
+      if (!this.otherPlayerSprites.has(id)) {
+        this.cacheOtherPlayerSprite(id, player);
+      }
+    }
+  }
+  
+  // Кэширование спрайта другого игрока
+  private cacheOtherPlayerSprite(id: string, player: OtherPlayer): void {
+    if (!this.spriteSheet) return;
+    
+    const canvas = document.createElement('canvas');
+    canvas.width = FRAME_SIZE;
+    canvas.height = FRAME_SIZE;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    // Рисуем текущий кадр в кэш
+    let frameRow = 0;
+    if (player.animation === 'idle') {
+      const dirOffset = { down: 0, up: 4, left: 8, right: 12 }[player.direction];
+      frameRow = dirOffset;
+    }
+    
+    ctx.drawImage(
+      this.spriteSheet,
+      0, frameRow * FRAME_SIZE, FRAME_SIZE, FRAME_SIZE,
+      0, 0, FRAME_SIZE, FRAME_SIZE
+    );
+    
+    this.otherPlayerSprites.set(id, { canvas, frame: frameRow });
+  }
+
+  // Рендеринг другого игрока с оптимизацией
+  private renderOtherPlayer(ctx: CanvasRenderingContext2D, otherPlayer: OtherPlayer): void {
     if (!this.spriteSheet) return;
 
-    // Определяем кадр
+    // Определяем кадр анимации
     let frameRow = 0;
     if (otherPlayer.animation === 'idle') {
       const dirOffset = { down: 0, up: 4, left: 8, right: 12 }[otherPlayer.direction];
@@ -298,7 +409,7 @@ export class GameEngine {
     ctx.ellipse(otherPlayer.x, otherPlayer.y + 28, 14, 5, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // Спрайт
+    // Спрайт из спрайт-листа (быстрее чем кэш для анимации)
     ctx.drawImage(
       this.spriteSheet,
       0, frameRow * FRAME_SIZE, FRAME_SIZE, FRAME_SIZE,
@@ -331,9 +442,17 @@ export class GameEngine {
   // Обновление состояния
   private update(dt: number): void {
     this.updatePlayer(dt);
+    this.updateOtherPlayers(dt);
     this.updateCamera();
     this.updateParticles(dt);
     this.waterAnimOffset = (this.waterAnimOffset + dt * 2) % (Math.PI * 2);
+    
+    // Троттлинг уведомлений об изменении состояния (для мультиплеера)
+    this.stateUpdateThrottle += dt;
+    if (this.stateUpdateThrottle >= this.STATE_UPDATE_INTERVAL && this.onStateChange) {
+      this.stateUpdateThrottle = 0;
+      this.onStateChange(this.getGameState());
+    }
   }
 
   private updatePlayer(dt: number): void {
@@ -509,10 +628,7 @@ export class GameEngine {
       }
     }
 
-    // Уведомляем об изменении состояния
-    if (this.onStateChange) {
-      this.onStateChange(this.getGameState());
-    }
+    // Уведомление об изменении состояния перенесено в update() для троттлинга
   }
 
   private updateCamera(): void {
@@ -707,12 +823,23 @@ export class GameEngine {
       render: () => this.renderPlayer(ctx),
     });
 
-    // Другие игроки из мультиплеера
-    for (const otherPlayer of this.otherPlayers) {
-      renderObjects.push({
-        y: otherPlayer.y + 28,
-        render: () => this.renderOtherPlayer(ctx, otherPlayer),
-      });
+    // Другие игроки из мультиплеера (с оптимизацией - только видимые)
+    const halfW = width / 2;
+    const halfH = height / 2;
+    const viewLeft = this.camera.x - halfW - 50;
+    const viewRight = this.camera.x + halfW + 50;
+    const viewTop = this.camera.y - halfH - 50;
+    const viewBottom = this.camera.y + halfH + 50;
+    
+    for (const [id, otherPlayer] of this.otherPlayers.entries()) {
+      // Проверяем видимость игрока (отсекаем невидимых)
+      if (otherPlayer.x >= viewLeft && otherPlayer.x <= viewRight &&
+          otherPlayer.y >= viewTop && otherPlayer.y <= viewBottom) {
+        renderObjects.push({
+          y: otherPlayer.y + 28,
+          render: () => this.renderOtherPlayer(ctx, otherPlayer),
+        });
+      }
     }
 
     // Сортировка по Y (Y-sorting)
