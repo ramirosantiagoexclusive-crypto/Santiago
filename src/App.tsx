@@ -98,9 +98,8 @@ function App() {
       
       // После загрузки игры подключаем мультиплеер
       if (mpRef.current) {
-        mpRef.current.connect().then(() => {
-          mpRef.current?.joinGame(playerName, 3200, 3200, playerColor);
-        });
+        mpRef.current.connect();
+        mpRef.current.joinGame(playerName, 3200, 3200, playerColor);
       }
     });
 
@@ -189,7 +188,6 @@ function App() {
 
   const handleNameChange = useCallback((name: string) => {
     setPlayerName(name);
-    mpRef.current?.setMyName(name);
   }, []);
 
   const handleSendChat = useCallback((text: string) => {
